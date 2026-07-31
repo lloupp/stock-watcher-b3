@@ -1,20 +1,29 @@
 // app.js — Lógica principal do Stock Watcher B3
 // Fase 1: Layout e UI base, grid de cards, busca client-side sobre default-stocks
-// Fase 2: importa o cliente da API brapi.dev (disponível para a Fase 3)
+// Fase 2: importa o cliente da API brapi.dev
+// Fase 3: renderiza cards com dados reais, logo, cores, auto-refresh a cada 60s
 
-import { formatCurrency, formatVolume, formatPercent } from './utils.js';
+import { formatCurrency, formatVolume, formatPercent, formatMarketCap, changeClass } from './utils.js';
 import {
   fetchQuote, fetchMultiple, fetchAvailable,
   setToken, hasToken, clearCache, getCacheState,
 } from './api.js';
 
 /* ----------------------------------------------------------------
-   Estado da aplicação (será expandido nas próximas fases)
+   Configuração
+   ---------------------------------------------------------------- */
+// Intervalo de auto-refresh (ms). 60s bate com o TTL do cache da API.
+const REFRESH_INTERVAL = 60_000;
+
+/* ----------------------------------------------------------------
+   Estado da aplicação
    ---------------------------------------------------------------- */
 const state = {
-  stocks: [],          // lista de ativos (default-stocks.json + watchlist futuramente)
+  stocks: [],          // lista de ativos (default-stocks.json)
   query: '',           // termo de busca atual
-  quotes: new Map(),   // cache de cotações da API (Fase 3 preencherá os cards com isso)
+  quotes: new Map(),    // cache de cotações da API (ticker → normalized quote)
+  loading: false,      // carregando cotações?
+  refreshTimer: null,   // handle do setInterval de auto-refresh
 };
 
 /* ----------------------------------------------------------------
@@ -40,7 +49,7 @@ const els = {
    Inicialização
    ---------------------------------------------------------------- */
 async function init() {
-  console.log('Stock Watcher B3 — inicializando... (Fase 2: cliente API brapi.dev)');
+  console.log('Stock Watcher B3 — inicializando... (Fase 3: cards com dados reais + auto-refresh)');
   console.log(hasToken()
     ? '[brapi] Token configurado no localStorage (limites completos).'
     : '[brapi] Sem token no localStorage — limite gratuito: ~3-4 tickers/IP. Use setApiToken() no console para configurar.');
@@ -49,12 +58,65 @@ async function init() {
   window.SW = {
     fetchQuote, fetchMultiple, fetchAvailable,
     setApiToken: setToken, hasToken, clearCache, getCacheState, state,
+    refreshNow: refreshQuotes,
   };
 
   bindEvents();
   renderMarketStatus();
   await loadDefaultStocks();
   renderCards();
+  // Fase 3: busca cotações reais para preencher os cards
+  await refreshQuotes();
+  startAutoRefresh();
+}
+
+/* ----------------------------------------------------------------
+   Carrega cotações reais da API e atualiza os cards.
+   Usa fetchMultiple (com batching) para respeitar o limite sem token.
+   ---------------------------------------------------------------- */
+async function refreshQuotes() {
+  if (state.stocks.length === 0) return;
+  state.loading = true;
+  updateRefreshIndicator(true);
+
+  const tickers = state.stocks.map((s) => s.ticker);
+  try {
+    const map = await fetchMultiple(tickers);
+    // Mescla no state.quotes Map
+    for (const [ticker, data] of map.entries()) {
+      if (data && !data.__error && !data.__loading) {
+        state.quotes.set(ticker, data);
+      }
+    }
+  } catch (err) {
+    console.error('Falha ao carregar cotações:', err);
+  } finally {
+    state.loading = false;
+    updateRefreshIndicator(false);
+    // Re-renderiza apenas os valores (sem reconstruir todo o DOM)
+    updateCardsWithData();
+  }
+}
+
+/* ----------------------------------------------------------------
+   Inicia auto-refresh a cada REFRESH_INTERVAL (60s).
+   ---------------------------------------------------------------- */
+function startAutoRefresh() {
+  if (state.refreshTimer) clearInterval(state.refreshTimer);
+  state.refreshTimer = setInterval(() => {
+    // clearCache força nova requisição (ignora o cache de 60s)
+    clearCache();
+    refreshQuotes();
+  }, REFRESH_INTERVAL);
+  console.log(`[auto-refresh] Configurado para ${REFRESH_INTERVAL / 1000}s.`);
+}
+
+/* ----------------------------------------------------------------
+   Atualiza o indicador de refresh no header (spinner discreto)
+   ---------------------------------------------------------------- */
+function updateRefreshIndicator(active) {
+  const wrap = els.marketStatus;
+  wrap.classList.toggle('is-refreshing', active);
 }
 
 /* ----------------------------------------------------------------
@@ -79,8 +141,9 @@ async function loadDefaultStocks() {
 
 /* ----------------------------------------------------------------
    Renderização dos cards
-   Na Fase 1 exibimos o card com os dados estáticos (ticker, nome, setor)
-   e placeholders (—) nos campos que dependerão da API (Fase 2/3).
+   Fase 1: layout esqueleto (ticker, nome, setor, placeholders).
+   Fase 3: injeta dados reais da API quando disponíveis em state.quotes;
+   caso contrário mostra "—" com spinner enquanto carrega.
    ---------------------------------------------------------------- */
 function renderCards() {
   const filtered = filterStocks(state.stocks, state.query);
@@ -103,36 +166,115 @@ function renderCards() {
 
 function renderCard(stock) {
   const { ticker, name, sector } = stock;
-  const logo = ticker.charAt(0);
+  const quote = state.quotes.get(ticker);
+  const isFirstLoad = state.loading && !quote;
 
-  // Fase 1: campos de preço/variação/volume ficam como placeholder "—"
-  // A Fase 3 injetará dados reais da API.
+  // Logo: usa logourl da API se disponível, senão a primeira letra do ticker
+  const logoHtml = quote?.logourl
+    ? `<img src="${escapeAttr(quote.logourl)}" alt="" loading="lazy"
+        onerror="this.style.display='none';this.parentElement.textContent='${ticker.charAt(0)}'">`
+    : ticker.charAt(0);
+
+  // Valores reais ou placeholder
+  const priceStr = quote?.price != null ? formatCurrency(quote.price) : '—';
+  const changeStr = quote?.changePercent != null
+    ? formatPercent(quote.changePercent)
+    : '—';
+  const cls = quote?.changePercent != null ? changeClass(quote.changePercent) : 'is-flat';
+  const volStr = quote?.volume != null ? formatVolume(quote.volume) : '—';
+  const mcapStr = quote?.marketCap != null ? formatMarketCap(quote.marketCap) : '—';
+
+  // Classe do card (borda colorida) — gain/loss/flat
+  const cardCls = quote?.changePercent != null
+    ? changeClass(quote.changePercent).replace('is-', 'is-')
+    : '';
+
   return `
-    <article class="card" data-ticker="${ticker}" role="button" tabindex="0" aria-label="Detalhes de ${ticker}">
+    <article class="card ${cardCls}${isFirstLoad ? ' is-loading' : ''}" data-ticker="${ticker}" role="button" tabindex="0" aria-label="Detalhes de ${ticker}">
       <div class="card__top">
-        <div class="card__logo" data-logo="${ticker}">${logo}</div>
+        <div class="card__logo" data-logo="${ticker}">${logoHtml}</div>
         <div class="card__info">
           <div class="card__ticker">${ticker}</div>
-          <div class="card__name">${escapeHtml(name)}</div>
+          <div class="card__name">${escapeHtml(quote?.longName || name)}</div>
         </div>
         <span class="card__sector">${escapeHtml(sector)}</span>
       </div>
       <div class="card__price">
-        <div class="card__price-value" data-price="${ticker}">—</div>
-        <div class="card__change is-flat" data-change="${ticker}">—</div>
+        <div class="card__price-value" data-price="${ticker}">${priceStr}</div>
+        <div class="card__change ${cls}" data-change="${ticker}">${changeStr}</div>
       </div>
       <div class="card__meta">
         <span>
           <span class="card__meta-label">Volume</span>
-          <b data-volume="${ticker}">—</b>
+          <b data-volume="${ticker}">${volStr}</b>
         </span>
         <span>
           <span class="card__meta-label">Market cap</span>
-          <b data-mcap="${ticker}">—</b>
+          <b data-mcap="${ticker}">${mcapStr}</b>
         </span>
       </div>
     </article>
   `;
+}
+
+/* ----------------------------------------------------------------
+   Atualiza os valores dinâmicos dos cards no DOM (sem reconstruir).
+   Atualiza preço, variação, volume, market cap, logo e classes de cor.
+   ---------------------------------------------------------------- */
+function updateCardsWithData() {
+  for (const [ticker, quote] of state.quotes.entries()) {
+    const card = els.cardsGrid.querySelector(`.card[data-ticker="${ticker}"]`);
+    if (!card) continue;
+
+    // Remove estado de loading
+    card.classList.remove('is-loading');
+
+    // Preço
+    const priceEl = card.querySelector('[data-price]');
+    if (priceEl && quote.price != null) {
+      priceEl.textContent = formatCurrency(quote.price);
+      priceEl.classList.remove('is-stale');
+    }
+
+    // Variação + cor do card
+    const chgEl = card.querySelector('[data-change]');
+    if (chgEl) {
+      if (quote.changePercent != null) {
+        chgEl.textContent = formatPercent(quote.changePercent);
+        const cls = changeClass(quote.changePercent);
+        chgEl.className = `card__change ${cls}`;
+      } else {
+        chgEl.textContent = '—';
+        chgEl.className = 'card__change is-flat';
+      }
+    }
+
+    // Borda colorida do card
+    card.classList.remove('is-gain', 'is-loss');
+    if (quote.changePercent != null) {
+      const cc = changeClass(quote.changePercent);
+      if (cc !== 'is-flat') card.classList.add(cc);
+    }
+
+    // Volume
+    const volEl = card.querySelector('[data-volume]');
+    if (volEl && quote.volume != null) {
+      volEl.textContent = formatVolume(quote.volume);
+    }
+
+    // Market cap
+    const mcapEl = card.querySelector('[data-mcap]');
+    if (mcapEl && quote.marketCap != null) {
+      mcapEl.textContent = formatMarketCap(quote.marketCap);
+    }
+
+    // Logo (troca letra por imagem se ainda não carregou)
+    const logoEl = card.querySelector('[data-logo]');
+    if (logoEl && quote.logourl && !logoEl.querySelector('img')) {
+      logoEl.innerHTML = `<img src="${escapeAttr(quote.logourl)}" alt="" loading="lazy"
+        onerror="this.style.display='none';this.parentElement.textContent='${ticker.charAt(0)}'">`;
+    }
+  }
 }
 
 /* ----------------------------------------------------------------
@@ -200,9 +342,10 @@ function bindEvents() {
     els.searchClear.classList.toggle('visible', !!els.searchInput.value);
   });
 
-  // Fecha o modal (placeholder — Fase 5)
-  els.modal.querySelector('[data-modal-close]')
-    .addEventListener('click', closeModal);
+  // Fecha o modal (overlay + botão ✕ injetado dinamicamente via delegação)
+  els.modal.addEventListener('click', (e) => {
+    if (e.target.closest('[data-modal-close]')) closeModal();
+  });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape') closeModal();
   });
@@ -235,22 +378,63 @@ function clearSearch() {
 }
 
 /* ----------------------------------------------------------------
-   Modal (placeholder — gráfico detalhado na Fase 5)
+   Modal — exibe cotação detalhada do ativo (Fase 3: dados reais;
+   Fase 5 preencherá com gráfico de histórico)
    ---------------------------------------------------------------- */
 function openModal(ticker) {
   const stock = state.stocks.find((s) => s.ticker === ticker);
-  if (!stock) return;
+  const quote = state.quotes.get(ticker);
+  if (!stock && !quote) return;
+
+  const display = quote?.longName || stock?.name || ticker;
+
+  // Logo
+  const logoHtml = quote?.logourl
+    ? `<img src="${escapeAttr(quote.logourl)}" alt="" onerror="this.style.display='none';this.parentElement.textContent='${ticker.charAt(0)}'">`
+    : (ticker.charAt(0));
+
+  // Bloco de detalhes (apenas se houver cotação)
+  let detailsHtml = '';
+  if (quote) {
+    const cc = quote.changePercent != null ? changeClass(quote.changePercent) : 'is-flat';
+    const changeStr = quote.changePercent != null ? formatPercent(quote.changePercent) : '—';
+    const changeAbs = quote.change != null ? (quote.change >= 0 ? '+' : '') + quote.change.toFixed(2) : '—';
+    detailsHtml = `
+      <div class="modal__quote">
+        <div class="modal__price-row">
+          <div class="modal__price">${quote.price != null ? formatCurrency(quote.price) : '—'}</div>
+          <div class="modal__change ${cc}">${changeStr} <span class="modal__change-abs">(${changeAbs})</span></div>
+        </div>
+        <div class="modal__grid">
+          <div class="modal__field"><span>Abertura</span><b>${quote.open != null ? formatCurrency(quote.open) : '—'}</b></div>
+          <div class="modal__field"><span>Fech. anterior</span><b>${quote.previousClose != null ? formatCurrency(quote.previousClose) : '—'}</b></div>
+          <div class="modal__field"><span>Máx. dia</span><b>${quote.dayHigh != null ? formatCurrency(quote.dayHigh) : '—'}</b></div>
+          <div class="modal__field"><span>Mín. dia</span><b>${quote.dayLow != null ? formatCurrency(quote.dayLow) : '—'}</b></div>
+          <div class="modal__field"><span>Volume</span><b>${quote.volume != null ? formatVolume(quote.volume) : '—'}</b></div>
+          <div class="modal__field"><span>Market cap</span><b>${quote.marketCap != null ? formatMarketCap(quote.marketCap) : '—'}</b></div>
+          <div class="modal__field"><span>Faixa 52 sem.</span><b>${quote.fiftyTwoWeekRange || '—'}</b></div>
+          <div class="modal__field"><span>P/L</span><b>${quote.priceEarnings != null ? quote.priceEarnings.toFixed(2) : '—'}</b></div>
+        </div>
+      </div>
+    `;
+  } else {
+    detailsHtml = `
+      <p class="modal__placeholder">Carregando cotação…</p>
+    `;
+  }
+
   els.modalContent.innerHTML = `
+    <button class="modal__close" data-modal-close aria-label="Fechar">✕</button>
     <div class="card__top">
-      <div class="card__logo">${stock.ticker.charAt(0)}</div>
+      <div class="card__logo">${logoHtml}</div>
       <div class="card__info">
-        <div class="card__ticker">${stock.ticker}</div>
-        <div class="card__name">${escapeHtml(stock.name)}</div>
+        <div class="card__ticker">${ticker}</div>
+        <div class="card__name">${escapeHtml(display)}</div>
+        ${stock ? `<span class="card__sector">${escapeHtml(stock.sector)}</span>` : ''}
       </div>
     </div>
-    <p style="color: var(--text-secondary); margin-top: 16px; font-size: 0.9rem;">
-      Gráfico detalhado e histórico disponíveis na Fase 5.
-    </p>
+    ${detailsHtml}
+    <p class="modal__hint">Gráfico de histórico disponível na Fase 5.</p>
   `;
   els.modal.hidden = false;
   els.modal.setAttribute('aria-hidden', 'false');
@@ -292,6 +476,15 @@ function escapeHtml(str) {
     .replace(/&/g, '&')
     .replace(/</g, '<')
     .replace(/>/g, '>')
+    .replace(/"/g, '"')
+    .replace(/'/g, '&#039;');
+}
+
+/* Escape para uso dentro de atributos HTML (ex: src="...") */
+function escapeAttr(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&')
     .replace(/"/g, '"')
     .replace(/'/g, '&#039;');
 }
