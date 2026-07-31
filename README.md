@@ -43,6 +43,34 @@ stock-watcher-b3/
 
 Abra `index.html` no navegador. Pronto.
 
+### Token da API brapi.dev (opcional)
+
+A [brapi.dev](https://brapi.dev) funciona sem token, mas sem ele o limite
+gratuito é de ~3-4 tickers distintos por IP. Para destravar o app completo
+(todos os ativos, 100 req/min, batches de até 20 tickers), crie uma conta
+gratuita em https://brapi.dev e configure o token no console do navegador:
+
+```js
+SW.setApiToken('seu_token_aqui');
+```
+
+O token é salvo no `localStorage` e usado automaticamente em todas as
+requisições. Para limpar: `SW.clearCache()` após remover com
+`localStorage.removeItem('brapi_token')`.
+
+### API de debug
+
+O objeto `window.SW` expõe (no console do navegador):
+
+```js
+SW.fetchQuote('PETR4')              // cotação de um ativo
+SW.fetchMultiple(['PETR4','VALE3']) // cotação de N ativos (batching)
+SW.fetchAvailable('PETR')           // lista de tickers disponíveis
+SW.hasToken()                        // há token configurado?
+SW.getCacheState()                   // estado do cache em memória
+SW.state                             // estado interno do app
+```
+
 ## Desenvolvimento
 
 Projeto construído incrementalmente via cron job de desenvolvimento automatizado.

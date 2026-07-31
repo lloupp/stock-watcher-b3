@@ -1,7 +1,12 @@
 // app.js — Lógica principal do Stock Watcher B3
 // Fase 1: Layout e UI base, grid de cards, busca client-side sobre default-stocks
+// Fase 2: importa o cliente da API brapi.dev (disponível para a Fase 3)
 
 import { formatCurrency, formatVolume, formatPercent } from './utils.js';
+import {
+  fetchQuote, fetchMultiple, fetchAvailable,
+  setToken, hasToken, clearCache, getCacheState,
+} from './api.js';
 
 /* ----------------------------------------------------------------
    Estado da aplicação (será expandido nas próximas fases)
@@ -9,6 +14,7 @@ import { formatCurrency, formatVolume, formatPercent } from './utils.js';
 const state = {
   stocks: [],          // lista de ativos (default-stocks.json + watchlist futuramente)
   query: '',           // termo de busca atual
+  quotes: new Map(),   // cache de cotações da API (Fase 3 preencherá os cards com isso)
 };
 
 /* ----------------------------------------------------------------
@@ -34,7 +40,16 @@ const els = {
    Inicialização
    ---------------------------------------------------------------- */
 async function init() {
-  console.log('Stock Watcher B3 — inicializando... (Fase 1)');
+  console.log('Stock Watcher B3 — inicializando... (Fase 2: cliente API brapi.dev)');
+  console.log(hasToken()
+    ? '[brapi] Token configurado no localStorage (limites completos).'
+    : '[brapi] Sem token no localStorage — limite gratuito: ~3-4 tickers/IP. Use setApiToken() no console para configurar.');
+
+  // Expõe API de depuração no window (acessível via console do navegador)
+  window.SW = {
+    fetchQuote, fetchMultiple, fetchAvailable,
+    setApiToken: setToken, hasToken, clearCache, getCacheState, state,
+  };
 
   bindEvents();
   renderMarketStatus();
@@ -291,4 +306,7 @@ if (document.readyState === 'loading') {
 }
 
 // Exporta funções que fases posteriores reaproveitarão
-export { state, els, renderCard, renderCards, renderSkeletons };
+export {
+  state, els, renderCard, renderCards, renderSkeletons,
+  fetchQuote, fetchMultiple, fetchAvailable, setToken, hasToken, clearCache,
+};
