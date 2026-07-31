@@ -3,14 +3,87 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Stock Watcher B3 — dashboard de ações da B3 em tempo real">
   <title>Stock Watcher B3</title>
   <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <!-- App: placeholder — será construído pelo cron de desenvolvimento -->
-  <div id="app">
-    <p>App em construção...</p>
+  <!-- ===== Header ===== -->
+  <header class="header">
+    <div class="header__inner">
+      <div class="header__logo">
+        <span class="logo-icon" aria-hidden="true">📈</span>
+        <div class="logo-text">
+          <h1>Stock Watcher<span class="logo-suffix"> B3</span></h1>
+          <p class="header__subtitle">Cotações da B3 em tempo real</p>
+        </div>
+      </div>
+      <div class="header__status" id="market-status" title="Status do mercado">
+        <span class="status-dot"></span>
+        <span class="status-text">Carregando…</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ===== Busca ===== -->
+  <section class="search">
+    <div class="search__inner">
+      <div class="search__box">
+        <span class="search__icon" aria-hidden="true">🔍</span>
+        <input
+          type="text"
+          id="search-input"
+          class="search__input"
+          placeholder="Buscar por ticker ou nome (ex: PETR4, Petrobras)…"
+          autocomplete="off"
+          spellcheck="false"
+          aria-label="Buscar ativo"
+        >
+        <button id="search-clear" class="search__clear" type="button" aria-label="Limpar busca" title="Limpar busca">✕</button>
+      </div>
+      <button id="search-btn" class="search__btn" type="button">Buscar</button>
+    </div>
+  </section>
+
+  <!-- ===== Grid de cards ===== -->
+  <main class="main">
+    <div class="main__inner">
+      <div class="main__header">
+        <h2 class="main__title" id="grid-title">Ações populares</h2>
+        <div class="main__meta" id="grid-meta"></div>
+      </div>
+
+      <!-- Loading state (Fase 2 preencherá com dados reais; a Fase 1 exibe skeleton) -->
+      <div id="cards-grid" class="cards-grid" aria-live="polite">
+        <!-- Cards renderizados dinamicamente por app.js -->
+      </div>
+
+      <!-- Empty state -->
+      <div id="empty-state" class="empty-state" hidden>
+        <span class="empty-icon">📭</span>
+        <p>Nenhum ativo encontrado.</p>
+      </div>
+    </div>
+  </main>
+
+  <!-- ===== Footer ===== -->
+  <footer class="footer">
+    <div class="footer__inner">
+      <p>Dados fornecidos por
+        <a href="https://brapi.dev" target="_blank" rel="noopener">brapi.dev</a> — API gratuita, sem token.
+      </p>
+      <p>Feito com 💙 · 100% client-side ·
+        <a href="https://github.com" target="_blank" rel="noopener">GitHub</a>
+      </p>
+    </div>
+  </footer>
+
+  <!-- ===== Modal (placeholder — Fase 5 preencherá com gráfico detalhado) ===== -->
+  <div id="modal" class="modal" hidden aria-hidden="true" role="dialog" aria-modal="true">
+    <div class="modal__overlay" data-modal-close></div>
+    <div class="modal__content" id="modal-content"></div>
   </div>
+
   <script type="module" src="js/app.js"></script>
 </body>
 </html>
