@@ -3,17 +3,18 @@
 Este arquivo controla o progresso do desenvolvimento automatizado via cron job.
 Cada fase é executada em uma execução do cron, com commit e push ao final.
 
-## Status: Fase 1 pendente
+## Status: Fase 1 concluída — próxima: Fase 2
 
 ## Fases
 
-### Fase 1 — Layout e UI Base [PENDENTE]
+### Fase 1 — Layout e UI Base [CONCLUÍDO]
 - Header com logo e título
 - Seção de busca de ativos (input + botão)
 - Grid de cards de ações (layout responsivo)
 - Footer com info da API
 - CSS completo: cards, tipografia, cores, responsividade
 - Commit: "feat: layout e UI base"
+- Concluído em 2026-07-31 — commit 9ecf2c6: header sticky com logo + status de mercado, busca com filtro client-side, grid responsivo (auto-fill), cards com ticker/nome/setor/preço/variação/volume/market cap, skeleton loading, footer créditos brapi.dev, modal base, CSS tema escuro completo com breakpoints mobile. API brapi.dev validada via curl (HTTP 200).
 
 ### Fase 2 — Cliente da API brapi.dev [PENDENTE]
 - Implementar js/api.js: fetchQuote(ticker), fetchAvailable(), fetchMultiple(tickers)
