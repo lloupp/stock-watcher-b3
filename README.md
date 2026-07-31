@@ -1,6 +1,11 @@
 # 📈 Stock Watcher B3
 
+[![GitHub Pages](https://img.shields.io/badge/GitHub%20Pages-online-brightgreen?logo=githubpages&logoColor=white)](https://lloupp.github.io/stock-watcher-b3/)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 Dashboard web para acompanhar ações da B3 em tempo real. 100% client-side, sem backend.
+
+> 🌐 **Demo ao vivo:** <https://lloupp.github.io/stock-watcher-b3/>
 
 ## Recursos
 
@@ -154,6 +159,21 @@ SW.watchlist.clear()                 // limpa todos
 ## Desenvolvimento
 
 Projeto construído incrementalmente via cron job de desenvolvimento automatizado.
+
+### Deploy (GitHub Pages)
+
+O app é 100% estático e já roda direto do `master` (\`index.html\` na raiz).
+O GitHub Pages está habilitado para a branch `master` (path `/`), sem build
+nem workflow extra:
+
+- **URL pública:** <https://lloupp.github.io/stock-watcher-b3/>
+- Todos os assets usam paths relativos (`css/`, `js/`, `data/`), então não
+  há ajuste de `base` ao publicar em subpath.
+- Para reconfigurar via API:
+  ```bash
+  gh api -X POST repos/<owner>/<repo>/pages \
+    -f "source[branch]=master" -f "source[path]=/"
+  ```
 
 ## Licença
 
