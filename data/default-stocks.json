@@ -1,0 +1,22 @@
+[
+  {"name": "Petrobras PN", "sector": "Petróleo", "ticker": "PETR4"},
+  {"name": "Vale ON", "sector": "Mineração", "ticker": "VALE3"},
+  {"name": "Itaú Unibanco PN", "sector": "Bancos", "ticker": "ITUB4"},
+  {"name": "Bradesco PN", "sector": "Bancos", "ticker": "BBDC4"},
+  {"name": "Ambev ON", "sector": "Bebidas", "ticker": "ABEV3"},
+  {"name": "B3 ON", "sector": "Financeiro", "ticker": "B3SA3"},
+  {"name": "Magazine Luiza ON", "sector": "Varejo", "ticker": "MGLU3"},
+  {"name": "Banco do Brasil ON", "sector": "Bancos", "ticker": "BBAS3"},
+  {"name": "Localiza ON", "sector": "Aluguel", "ticker": "RENT3"},
+  {"name": "WEG ON", "sector": "Industrial", "ticker": "WEGE3"},
+  {"name": "Petro Rio ON", "sector": "Petróleo", "ticker": "PRIO3"},
+  {"name": "Hypera ON", "sector": "Farmacêutico", "ticker": "HYPE3"},
+  {"name": "Raia Drogasil ON", "sector": "Farmacêutico", "ticker": "RADL3"},
+  {"name": "Equatorial ON", "sector": "Energia", "ticker": "EQTL3"},
+  {"name": "Gerdau PN", "sector": "Siderurgia", "ticker": "GGBR4"},
+  {"name": "CSN ON", "sector": "Siderurgia", "ticker": "CSNA3"},
+  {"name": "Usiminas PN", "sector": "Siderurgia", "ticker": "USIM5"},
+  {"name": "Cemig PN", "sector": "Energia", "ticker": "CMIG4"},
+  {"name": "Copel PN", "sector": "Energia", "ticker": "CPLE6"},
+  {"name": "Klabin ON", "sector": "Papel e Celulose", "ticker": "KLBN11"}
+]
