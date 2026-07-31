@@ -45,6 +45,45 @@
     </div>
   </section>
 
+  <!-- ===== Fase 6: Barra de filtros ===== -->
+  <section class="filters" id="filters-bar" aria-label="Filtros e ordenação">
+    <div class="filters__inner">
+      <!-- Variação: todos / gainers / losers -->
+      <div class="filter-group" role="group" aria-label="Filtro por variação" id="filter-variation">
+        <button type="button" class="filter-chip is-active" data-variation="all">
+          Todos <span class="filter-badge" aria-hidden="true">0</span>
+        </button>
+        <button type="button" class="filter-chip filter-chip--gain" data-variation="gainers">
+          <span aria-hidden="true">▲</span> Altas <span class="filter-badge" aria-hidden="true">0</span>
+        </button>
+        <button type="button" class="filter-chip filter-chip--loss" data-variation="losers">
+          <span aria-hidden="true">▼</span> Baixas <span class="filter-badge" aria-hidden="true">0</span>
+        </button>
+      </div>
+
+      <div class="filter-group filter-group--end">
+        <!-- Setor -->
+        <div class="filter-select">
+          <span class="filter-select__icon" aria-hidden="true">🏭</span>
+          <select id="filter-sector" class="filter-select__el" aria-label="Filtrar por setor">
+            <option value="">Todos os setores</option>
+          </select>
+        </div>
+        <!-- Ordenação -->
+        <div class="filter-select">
+          <span class="filter-select__icon" aria-hidden="true">↕</span>
+          <select id="filter-sort" class="filter-select__el" aria-label="Ordenar por">
+            <option value="default">Padrão</option>
+          </select>
+        </div>
+        <!-- Reset -->
+        <button type="button" id="filter-reset" class="filter-reset" hidden title="Limpar todos os filtros">
+          ✕ Limpar filtros
+        </button>
+      </div>
+    </div>
+  </section>
+
   <!-- ===== Grid de cards ===== -->
   <main class="main">
     <div class="main__inner">

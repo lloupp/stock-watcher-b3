@@ -12,6 +12,8 @@ import {
 } from './api.js';
 // Fase 5: gráficos em canvas (sparkline nos cards, candlestick/linha no modal)
 import { drawSparkline, drawChart, getChartPointAt } from './charts.js';
+// Fase 6: filtros e ordenação
+import { applyFilters, collectSectors, countVariations, SORT_KEYS, getNumeric } from './filters.js';
 import {
   loadWatchlist, addToWatchlist, removeFromWatchlist,
   toggleWatchlist, hasInWatchlist, clearWatchlist, watchlistSize, replaceWatchlist,
@@ -42,6 +44,12 @@ const state = {
   // Fase 5: gráfico do modal
   modalChart: null,     // { canvas, history, type, hoverIndex, rafId, range, interval }
   sparklineObservers: new Map(), // ticker → ResizeObserver (limpa ao re-render)
+  // Fase 6: critérios de filtro/ordenação aplicados à view ativa
+  filters: {
+    sector: '',          // "" (todos) | nome exato do setor
+    variation: 'all',   // 'all' | 'gainers' | 'losers'
+    sort: 'default',     // chave em SORT_KEYS
+  },
 };
 
 /* ----------------------------------------------------------------
@@ -68,13 +76,19 @@ const els = {
   watchlistInput: $('#watchlist-input'),
   watchlistAddBtn: $('#watchlist-add-btn'),
   watchlistClear: $('#watchlist-clear'),
+  // Fase 6: barra de filtros
+  filtersBar: $('#filters-bar'),
+  filterSector: $('#filter-sector'),
+  filterVariation: $('#filter-variation'),
+  filterSort: $('#filter-sort'),
+  filterReset: $('#filter-reset'),
 };
 
 /* ----------------------------------------------------------------
    Inicialização
    ---------------------------------------------------------------- */
 async function init() {
-  console.log('Stock Watcher B3 — inicializando... (Fase 5: gráficos em canvas)');
+  console.log('Stock Watcher B3 — inicializando... (Fase 6: busca e filtros)');
   console.log(hasToken()
     ? '[brapi] Token configurado no localStorage (limites completos).'
     : '[brapi] Sem token no localStorage — limite gratuito: ~3-4 tickers/IP. Use setApiToken() no console para configurar.');
@@ -96,9 +110,16 @@ async function init() {
     },
     // Fase 5: funções de gráfico
     drawSparkline, drawChart, refreshSparklines,
+    // Fase 6: funções de filtro/ordenação
+    filters: {
+      applyFilters, collectSectors, countVariations, SORT_KEYS,
+      reset: resetAllFilters,
+    },
   };
 
   bindEvents();
+  // Fase 6: popula o <select> de ordenação com base em SORT_KEYS
+  populateSortOptions();
   renderMarketStatus();
   updateWatchlistBadge();
   updateWatchlistToolbar();
@@ -152,6 +173,15 @@ async function refreshQuotes() {
     updateCardsWithData();
     // Atualiza o título/meta caso a view seja watchlist e dados mudaram
     if (state.view === 'watchlist') updateGridMeta(getDisplayedStocks().length);
+
+    // Fase 6: se há filtros de variação ativos (gainers/losers) ou ordenação
+    // por valor de mercado, a mudança de cotação pode mudar quais ativos aparecem
+    // ou em qual ordem — re-renderiza o grid inteiro.
+    const needReorder =
+      state.filters.variation !== 'all' ||
+      (state.filters.sort === 'price' || state.filters.sort === 'change' ||
+       state.filters.sort === 'volume' || state.filters.sort === 'marketCap');
+    if (needReorder) renderCards();
   }
 
   // Fase 5: busca histórico curto para sparkline (após cotações, não-bloqueante)
@@ -254,7 +284,23 @@ function renderCards() {
   teardownSparklineObservers();
 
   const displayed = getDisplayedStocks();
-  const filtered = filterStocks(displayed, state.query);
+  // Fase 6: filtros + ordenação via módulo filters.js
+  const criteria = {
+    query: state.query,
+    sector: state.filters.sector,
+    variation: state.filters.variation,
+    sort: state.filters.sort,
+  };
+  const filtered = applyFilters(displayed, criteria, state.quotes);
+
+  // Fase 6: atualiza as opções de setor do <select> conforme a view ativa
+  populateSectorOptions(displayed);
+  // Fase 6: atualiza badges de contagem de variação (gainers/losers)
+  updateVariationBadges(displayed);
+  // Fase 6: atualiza o botão de reset (visibilidade) + classe is-filtering
+  const isFiltering = !!(state.query || state.filters.sector || state.filters.variation !== 'all' || state.filters.sort !== 'default');
+  els.filtersBar?.classList.toggle('is-filtering', isFiltering);
+  updateFilterResetVisibility();
 
   if (filtered.length === 0) {
     els.cardsGrid.innerHTML = '';
@@ -482,18 +528,101 @@ function renderSkeletons(count) {
 }
 
 /* ----------------------------------------------------------------
-   Filtro de busca (client-side sobre os ativos carregados)
+   Fase 6 — Controles de filtro e ordenação
+   Renderiza as opções de setor, badges de variação e estado do botão
+   de reset. A lógica de filtragem em si mora em filters.js.
    ---------------------------------------------------------------- */
-function filterStocks(stocks, query) {
-  if (!query) return stocks;
-  const q = query.trim().toLowerCase();
-  if (!q) return stocks;
-  return stocks.filter(
-    (s) =>
-      s.ticker.toLowerCase().includes(q) ||
-      s.name.toLowerCase().includes(q) ||
-      (s.sector && s.sector.toLowerCase().includes(q))
+
+/** Popula o <select> de setores com base nos ativos exibidos. */
+function populateSectorOptions(stocks) {
+  if (!els.filterSector) return;
+  const sectors = collectSectors(stocks);
+  // Preserva a seleção atual
+  const current = state.filters.sector;
+  const opts = ['<option value="">Todos os setores</option>']
+    .concat(sectors.map((s) => `<option value="${escapeAttr(s)}">${escapeHtml(s)}</option>`));
+  els.filterSector.innerHTML = opts.join('');
+  // Reaplica a seleção se ainda for válida
+  if (sectors.includes(current) || current === '') {
+    els.filterSector.value = current;
+  } else {
+    // setor não existe mais nesta view → reseta
+    state.filters.sector = '';
+    els.filterSector.value = '';
+  }
+}
+
+/** Popula o <select> de ordenação com as chaves de SORT_KEYS (uma vez no boot). */
+function populateSortOptions() {
+  if (!els.filterSort) return;
+  const opts = Object.entries(SORT_KEYS).map(
+    ([key, def]) => `<option value="${key}">${escapeHtml(def.label)}</option>`
   );
+  els.filterSort.innerHTML = opts.join('');
+  els.filterSort.value = state.filters.sort;
+}
+
+/** Atualiza os badges (count) dos botões de variação. */
+function updateVariationBadges(stocks) {
+  if (!els.filterVariation) return;
+  const counts = countVariations(stocks, state.quotes);
+  const buttons = els.filterVariation.querySelectorAll('[data-variation]');
+  buttons.forEach((btn) => {
+    const key = btn.dataset.variation;
+    const count = key === 'all' ? counts.all : (key === 'gainers' ? counts.gainers : counts.losers);
+    const badge = btn.querySelector('.filter-badge');
+    if (count != null && count >= 0) {
+      if (badge) badge.textContent = count;
+      btn.disabled = count === 0 && key !== 'all';
+    } else {
+      if (badge) badge.textContent = '0';
+      btn.disabled = key !== 'all';
+    }
+  });
+}
+
+/** Mostra/esconde o botão de resetar filtros. */
+function updateFilterResetVisibility() {
+  if (!els.filterReset) return;
+  const active = !!(state.query || state.filters.sector || state.filters.variation !== 'all' || state.filters.sort !== 'default');
+  els.filterReset.hidden = !active;
+}
+
+/** Reseta todos os filtros + busca ao estado inicial. */
+function resetAllFilters() {
+  state.filters.sector = '';
+  state.filters.variation = 'all';
+  state.filters.sort = 'default';
+  if (els.filterSector) els.filterSector.value = '';
+  if (els.filterSort) els.filterSort.value = 'default';
+  if (els.filterVariation) {
+    els.filterVariation.querySelectorAll('[data-variation]').forEach((b) => {
+      b.classList.toggle('is-active', b.dataset.variation === 'all');
+    });
+  }
+  // Limpa também a busca textual
+  if (state.query) {
+    els.searchInput.value = '';
+    els.searchClear.classList.remove('visible');
+    state.query = '';
+  }
+  renderCards();
+}
+
+/** Aplica o mesmo critério de variação, toggling si mesmo se já está ativo. */
+function handleVariationClick(btn) {
+  const key = btn.dataset.variation;
+  if (state.filters.variation === key) {
+    // clicar novamente no ativo volta para "all"
+    state.filters.variation = 'all';
+  } else {
+    state.filters.variation = key;
+  }
+  // Atualiza visual dos botões
+  els.filterVariation.querySelectorAll('[data-variation]').forEach((b) => {
+    b.classList.toggle('is-active', b.dataset.variation === state.filters.variation);
+  });
+  renderCards();
 }
 
 function updateGridMeta(count) {
@@ -518,18 +647,25 @@ function updateEmptyState() {
   const subEl = els.emptyState.querySelector('.empty-sub');
   const iconEl = els.emptyState.querySelector('.empty-icon');
 
-  if (state.view === 'watchlist' && !state.query) {
+  // Fase 6: detectar se filtros estão ativos (sem contar busca textual)
+  const hasFilters = state.filters.sector || state.filters.variation !== 'all';
+
+  if (state.view === 'watchlist' && !state.query && !hasFilters && watchlistSize() === 0) {
     iconEl.textContent = '⭐';
     titleEl.textContent = 'Sua watchlist está vazia.';
     subEl.innerHTML = 'Adicione ativos com o campo acima ou clique na estrela (☆) em qualquer card.';
   } else if (state.view === 'watchlist' && state.query) {
     iconEl.textContent = '📭';
-    titleEl.textContent = `Nenhum ativo da watchlist corresponde a "${state.query}".`;
-    subEl.textContent = '';
+    titleEl.textContent = `Nenhum ativo da watchlist corresponde a "${state.query}"${hasFilters ? ' (com os filtros ativos)' : ''}.`;
+    subEl.textContent = hasFilters ? 'Tente limpar os filtros.' : '';
   } else if (state.query) {
     iconEl.textContent = '🔍';
-    titleEl.textContent = `Nenhum ativo encontrado para "${state.query}".`;
-    subEl.textContent = 'Tente outro ticker ou nome.';
+    titleEl.textContent = `Nenhum ativo encontrado para "${state.query}"${hasFilters ? ' (com os filtros ativos)' : ''}.`;
+    subEl.textContent = hasFilters ? 'Tente limpar os filtros ou outro termo.' : 'Tente outro ticker ou nome.';
+  } else if (hasFilters) {
+    iconEl.textContent = '🔍';
+    titleEl.textContent = 'Nenhum ativo corresponde aos filtros ativos.';
+    subEl.textContent = 'Clique em "Limpar filtros" para ver todos os ativos.';
   } else {
     iconEl.textContent = '📭';
     titleEl.textContent = 'Nenhum ativo encontrado.';
@@ -634,6 +770,30 @@ function bindEvents() {
       refreshQuotes();
     }
   });
+
+  // Fase 6: filtros — setor, variação e ordenação
+  if (els.filterSector) {
+    els.filterSector.addEventListener('change', () => {
+      state.filters.sector = els.filterSector.value;
+      renderCards();
+    });
+  }
+  if (els.filterVariation) {
+    els.filterVariation.addEventListener('click', (e) => {
+      const btn = e.target.closest('[data-variation]');
+      if (!btn) return;
+      handleVariationClick(btn);
+    });
+  }
+  if (els.filterSort) {
+    els.filterSort.addEventListener('change', () => {
+      state.filters.sort = els.filterSort.value;
+      renderCards();
+    });
+  }
+  if (els.filterReset) {
+    els.filterReset.addEventListener('click', resetAllFilters);
+  }
 }
 
 function handleSearch() {
@@ -690,6 +850,18 @@ function switchView(view) {
 
   // Mostra/esconde a toolbar de watchlist
   updateWatchlistToolbar();
+
+  // Fase 6: resetar filtros ao trocar de view (setores mudam, contexto muda)
+  state.filters.sector = '';
+  state.filters.variation = 'all';
+  state.filters.sort = 'default';
+  if (els.filterSector) els.filterSector.value = '';
+  if (els.filterSort) els.filterSort.value = 'default';
+  if (els.filterVariation) {
+    els.filterVariation.querySelectorAll('[data-variation]').forEach((b) => {
+      b.classList.toggle('is-active', b.dataset.variation === 'all');
+    });
+  }
 
   // Limpa a busca ao trocar de view (contexto muda)
   if (state.query) clearSearch();
@@ -1069,4 +1241,6 @@ export {
   toggleWatchlist, hasInWatchlist, clearWatchlist, watchlistSize,
   // Fase 5
   drawSparkline, drawChart, refreshSparklines,
+  // Fase 6
+  applyFilters, collectSectors, countVariations, SORT_KEYS, resetAllFilters,
 };
