@@ -3,7 +3,7 @@
 Este arquivo controla o progresso do desenvolvimento automatizado via cron job.
 Cada fase é executada em uma execução do cron, com commit e push ao final.
 
-## Status: Fase 6 concluída — próxima: Fase 7
+## Status: Fase 7 concluída — próxima: Fase 8
 
 ## Fases
 
@@ -56,7 +56,7 @@ Cada fase é executada em uma execução do cron, com commit e push ao final.
 - Commit: "feat: busca e filtros"
 - Concluído em 2026-07-31 — commit 698ad52: novo módulo js/filters.js (lógica pura: applyFilters, collectSectors, countVariations, SORT_KEYS, getNumeric — não toca no DOM/estado, recebe Map<ticker,quote> opcional para valores de mercado). Busca por nome/ticker/setor (case-insensitive) já existente foi mantida e integrada aos novos critérios. Filtro por setor via <select> populado dinamicamente conforme a view ativa (collectSectors ordena em pt-BR, exclui "—"). Filtro por variação via chips pill "Todos/Altas/Baixas" com badges de contagem (countVariations), estados gain=verde/loss=vermelho, toggle (clicar novamente no ativo volta para "Todos") e botão desabilita quando count=0. Ordenação via <select> com 7 chaves: padrão, ticker asc, nome asc, preço/variação/volume/market cap desc — ativos sem quote vão para o final em ordenação numérica (null-safety). Botão "Limpar filtros" aparece quando qualquer critério está ativo (busca+filtros). Barra .filters sticky sob o header (top:70px desktop, 64px mobile) com classe is-filtering (borda accent inferior). switchView resetar todos os filtros ao trocar de view (setores mudam entre populares/watchlist). refreshQuotes re-renderiza o grid quando há filtros de variação ou ordenação por valor de mercado ativos (cotações podem mudar membership/ordem). updateEmptyState contextualiza estado vazio por filtros ativos (mensagem "Nenhum ativo corresponde aos filtros ativos"). index.html: seção .filters com groups role=group, chips com data-variation, selects com ícones à esquerda (🏭/↕). CSS: chips pill 18px radius, selects com appearance:none + seta SVG inline (data:image/svg+xml), option background=--bg-card, reset com hover vermelho, responsividade mobile (empilha em 480px, full-width no mobile). window.SW.filters expõe applyFilters/collectSectors/countVariations/SORT_KEYS/reset para debug no console. Testes: 24 testes unitários cobrindo filtros isolados+combinados, ordenação asc/desc completa, null-safety de ativos sem quote em ordenação e em gainers/losers, collectSectors ordenado pt-BR — TODOS PASSANDO. node --check OK em todos os 6 JS. JSON válido. curl confirmou API brapi.dev respondendo para single ticker (HTTP 200, PETR4 preço real 43.18) — limite por IP esgotado para lotes de 3 (HTTP 401, comportamento já documentado e tratado com fallback automático herdado da Fase 2).
 
-### Fase 7 — Polimento e Extras [PENDENTE]
+### Fase 7 — Polimento e Extras [CONCLUÍDO]
 - Animações de transição nos cards
 - Indicador de mercado aberto/fechado
 - Toast notifications para ações
@@ -64,6 +64,7 @@ Cada fase é executada em uma execução do cron, com commit e push ao final.
 - Validação: abrir no navegador, testar todas as features
 - Atualizar README com截图 e instruções
 - Commit: "feat: polimento e extras"
+- Concluído em 2026-07-31 — commit 159128e: o módulo js/toast.js (já existia no working tree não-commitado) foi finalizado e commitado — sistema de toasts leve, sem dependências, container fixo bottom-right, variantes success/error/warn/info com ícones, auto-dismiss 4-6s, animações slide-in/leave via transform, responsivo (full-width no mobile), respeita prefers-reduced-motion, botão ✕ manual, role=alert para erro. app.js já integrava toasts em handleWatchlistToggle (+sucesso/-info), handleAddToWatchlist (sucesso novos / warn já-presente), handleClearWatchlist (info), refreshQuotes catch (error). Animação de entrada stagger dos cards (staggerCardEntrance, já no JS) recebeu o CSS faltante: @keyframes cardEntrance (fade + translateY + scale), delay escalonado 35ms até 12 cards, classe auto-removida em animationend, prefers-reduced-motion zera tudo. Indicador de mercado aberto/fechado (renderMarketStatus, já no JS) agora reavalia a cada 60s via setInterval em init() — antes era uma só chamada no boot, agora reflete mudança de pregão com o app aberto. Modal de detalhes já existia desde Fase 3/5 (grid 2x2 com abertura/fech.anterior/máx/mín/volume/mcap/faixa 52sem/P/L + gráfico candlestick/linha). README atualizado: nova seção "Polimento e Extras (Fase 7)" documentando animação de entrada, indicador de mercado, toasts (com lista de variantes) e modal de detalhes; árvore de arquivos corrigida (adicionados filters.js e toast.js). Testes: node --check OK em todos os 7 JS, JSON válido, imports ES module todos cobertos (app.js importa de utils/api/charts/filters/watchlist/toast), curl brapi.dev HTTP 200 (704 bytes), git push confirmado (6dcab41..159128e).
 
 ### Fase 8 — Deploy no GitHub Pages [PENDENTE]
 - Configurar GitHub Pages (gh-pages branch ou settings)
