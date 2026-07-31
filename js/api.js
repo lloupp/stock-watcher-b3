@@ -345,6 +345,71 @@ export async function fetchAvailable(search = null) {
 }
 
 /* ----------------------------------------------------------------
+   fetchHistory(ticker, range, interval) — histórico OHLCV de um ativo.
+   Usa o endpoint /quote com parâmetros range e interval suportados pela
+   brapi.dev. A resposta vem em results[].historicalDataPrice (array de
+   {date(unix seg), open, high, low, close, volume, adjustedClose}).
+   Retorna { points: [{t, o, h, l, c, v, ac}], range, interval }.
+   Não usa o cache de cotação (variável dedicada abaixo) pois o histórico
+   é mais estável e custa mais caro de refetch.
+   ---------------------------------------------------------------- */
+const histCache = new Map();
+
+const DEFAULT_RANGE = '1mo';
+const DEFAULT_INTERVAL = '1d';
+
+export async function fetchHistory(ticker, range = DEFAULT_RANGE, interval = DEFAULT_INTERVAL) {
+  const sym = String(ticker).trim().toUpperCase();
+  if (!sym) throw new Error('Ticker vazio para histórico');
+
+  // Cache de histórico: TTL 5min (mais longevo que o de cotação porque
+  // o histórico diário não muda minuto a minuto).
+  const HIST_TTL = 5 * 60_000;
+  const key = `${sym}:${range}:${interval}`;
+  const hit = histCache.get(key);
+  if (hit && Date.now() - hit.ts < HIST_TTL) return hit.data;
+
+  const params = { range, interval, fundamental: 'false' };
+  const url = `${BRAPI_BASE}/quote/${encodeURIComponent(sym)}${buildQuery(params)}`;
+  let res;
+  try {
+    res = await fetch(url);
+  } catch (err) {
+    throw new Error(`Falha de rede ao buscar histórico de ${sym}: ${err.message}`);
+  }
+  if (!res.ok) throw new Error(`${sym}: histórico HTTP ${res.status}`);
+
+  const body = await res.json();
+  if (body.error) throw new Error(`${sym}: ${body.message || 'erro ao buscar histórico'}`);
+
+  const result = Array.isArray(body.results) ? body.results[0] : null;
+  const raw = Array.isArray(result?.historicalDataPrice) ? result.historicalDataPrice : [];
+
+  // Normaliza: ordena por data asc, descarta pontos sem close.
+  const points = raw
+    .filter((p) => p && p.close != null && p.date != null)
+    .map((p) => ({
+      t: p.date * 1000,           // ms
+      o: p.open ?? null,
+      h: p.high ?? null,
+      l: p.low ?? null,
+      c: p.close ?? null,
+      v: p.volume ?? null,
+      ac: p.adjustedClose ?? p.close ?? null,
+    }))
+    .sort((a, b) => a.t - b.t);
+
+  const data = { points, range, interval, ticker: sym };
+  histCache.set(key, { data, ts: Date.now() });
+  return data;
+}
+
+/** Limpa o cache de histórico (usado pelo auto-refresh para forçar novos dados). */
+export function clearHistoryCache() {
+  histCache.clear();
+}
+
+/* ----------------------------------------------------------------
    Exporta o cache para inspeção/teste
    ---------------------------------------------------------------- */
 export function getCacheState() {

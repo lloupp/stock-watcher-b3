@@ -7,9 +7,11 @@
 
 import { formatCurrency, formatVolume, formatPercent, formatMarketCap, changeClass } from './utils.js';
 import {
-  fetchQuote, fetchMultiple, fetchAvailable,
-  setToken, hasToken, clearCache, getCacheState,
+  fetchQuote, fetchMultiple, fetchAvailable, fetchHistory,
+  setToken, hasToken, clearCache, getCacheState, clearHistoryCache,
 } from './api.js';
+// Fase 5: gráficos em canvas (sparkline nos cards, candlestick/linha no modal)
+import { drawSparkline, drawChart, getChartPointAt } from './charts.js';
 import {
   loadWatchlist, addToWatchlist, removeFromWatchlist,
   toggleWatchlist, hasInWatchlist, clearWatchlist, watchlistSize, replaceWatchlist,
@@ -20,6 +22,10 @@ import {
    ---------------------------------------------------------------- */
 // Intervalo de auto-refresh (ms). 60s bate com o TTL do cache da API.
 const REFRESH_INTERVAL = 60_000;
+// Range padrão do sparkline (5 dias úteis) e do gráfico do modal (1 mês).
+const SPARKLINE_RANGE = '5d';
+const MODAL_CHART_RANGE = '1mo';
+const MODAL_CHART_INTERVAL = '1d';
 
 /* ----------------------------------------------------------------
    Estado da aplicação
@@ -30,8 +36,12 @@ const state = {
   view: 'popular',     // view ativa: 'popular' | 'watchlist'
   query: '',           // termo de busca atual
   quotes: new Map(),    // cache de cotações da API (ticker → normalized quote)
+  history: new Map(),   // cache de histórico (ticker → {points, range, interval}) [Fase 5]
   loading: false,      // carregando cotações?
   refreshTimer: null,   // handle do setInterval de auto-refresh
+  // Fase 5: gráfico do modal
+  modalChart: null,     // { canvas, history, type, hoverIndex, rafId, range, interval }
+  sparklineObservers: new Map(), // ticker → ResizeObserver (limpa ao re-render)
 };
 
 /* ----------------------------------------------------------------
@@ -64,7 +74,7 @@ const els = {
    Inicialização
    ---------------------------------------------------------------- */
 async function init() {
-  console.log('Stock Watcher B3 — inicializando... (Fase 4: watchlist com localStorage)');
+  console.log('Stock Watcher B3 — inicializando... (Fase 5: gráficos em canvas)');
   console.log(hasToken()
     ? '[brapi] Token configurado no localStorage (limites completos).'
     : '[brapi] Sem token no localStorage — limite gratuito: ~3-4 tickers/IP. Use setApiToken() no console para configurar.');
@@ -75,8 +85,8 @@ async function init() {
 
   // Expõe API de depuração no window (acessível via console do navegador)
   window.SW = {
-    fetchQuote, fetchMultiple, fetchAvailable,
-    setApiToken: setToken, hasToken, clearCache, getCacheState, state,
+    fetchQuote, fetchMultiple, fetchAvailable, fetchHistory,
+    setApiToken: setToken, hasToken, clearCache, clearHistoryCache, getCacheState, state,
     refreshNow: refreshQuotes,
     // Fase 4: API de watchlist no console
     watchlist: {
@@ -84,6 +94,8 @@ async function init() {
       toggle: toggleWatchlist, has: hasInWatchlist, clear: clearWatchlist,
       size: watchlistSize, replace: replaceWatchlist,
     },
+    // Fase 5: funções de gráfico
+    drawSparkline, drawChart, refreshSparklines,
   };
 
   bindEvents();
@@ -141,6 +153,9 @@ async function refreshQuotes() {
     // Atualiza o título/meta caso a view seja watchlist e dados mudaram
     if (state.view === 'watchlist') updateGridMeta(getDisplayedStocks().length);
   }
+
+  // Fase 5: busca histórico curto para sparkline (após cotações, não-bloqueante)
+  refreshSparklines();
 }
 
 /* ----------------------------------------------------------------
@@ -151,6 +166,8 @@ function startAutoRefresh() {
   state.refreshTimer = setInterval(() => {
     // clearCache força nova requisição (ignora o cache de 60s)
     clearCache();
+    // Fase 5: limpa cache de histórico também (força refetch do sparkline)
+    clearHistoryCache();
     refreshQuotes();
   }, REFRESH_INTERVAL);
   console.log(`[auto-refresh] Configurado para ${REFRESH_INTERVAL / 1000}s.`);
@@ -233,6 +250,9 @@ function inferSector(quote) {
 }
 
 function renderCards() {
+  // Fase 5: reconstrói o DOM, então desconecta ResizeObservers de sparkline antigos
+  teardownSparklineObservers();
+
   const displayed = getDisplayedStocks();
   const filtered = filterStocks(displayed, state.query);
 
@@ -251,6 +271,9 @@ function renderCards() {
     .join('');
 
   updateGridMeta(filtered.length);
+
+  // Fase 5: se já há histórico em cache, desenha os sparklines imediatamente
+  drawAllSparklines();
 }
 
 function renderCard(stock) {
@@ -309,6 +332,7 @@ function renderCard(stock) {
           <b data-mcap="${ticker}">${mcapStr}</b>
         </span>
       </div>
+      <canvas class="card__spark" data-spark="${ticker}" width="100" height="32" aria-hidden="true"></canvas>
     </article>
   `;
 }
@@ -370,7 +394,70 @@ function updateCardsWithData() {
       logoEl.innerHTML = `<img src="${escapeAttr(quote.logourl)}" alt="" loading="lazy"
         onerror="this.style.display='none';this.parentElement.textContent='${ticker.charAt(0)}'">`;
     }
+
+    // Fase 5: desenha sparkline se o histórico já chegou
+    const hist = state.history.get(ticker);
+    if (hist?.points && hist.points.length >= 2) {
+      sparklineDraw(ticker, hist.points);
+    }
   }
+}
+
+/* ----------------------------------------------------------------
+   Fase 5 — Sparkline nos cards
+   ---------------------------------------------------------------- */
+
+/** Busca histórico curto (5d) para tickers exibidos sem histórico. */
+async function refreshSparklines() {
+  const tickers = getDisplayedStocks().map((s) => s.ticker);
+  const missing = tickers.filter((t) => !state.history.has(t));
+  if (missing.length === 0) { drawAllSparklines(); return; }
+  const batchSize = 3;
+  for (let i = 0; i < missing.length; i += batchSize) {
+    const batch = missing.slice(i, i + batchSize);
+    await Promise.allSettled(
+      batch.map(async (ticker) => {
+        try {
+          const hist = await fetchHistory(ticker, SPARKLINE_RANGE, '1d');
+          if (hist?.points?.length) state.history.set(ticker, hist);
+        } catch (e) {
+          console.warn(`[spark] ${ticker}: ${e.message}`);
+        }
+      })
+    );
+  }
+  drawAllSparklines();
+}
+
+/** Desenha todos os sparklines visíveis. */
+function drawAllSparklines() {
+  const canvases = els.cardsGrid.querySelectorAll('canvas[data-spark]');
+  canvases.forEach((cv) => {
+    const ticker = cv.dataset.spark;
+    const hist = state.history.get(ticker);
+    if (hist?.points?.length >= 2) sparklineDraw(ticker, hist.points);
+  });
+}
+
+/** Desenha o sparkline e instala ResizeObserver. */
+function sparklineDraw(ticker, points) {
+  const canvas = els.cardsGrid.querySelector(`canvas[data-spark="${ticker}"]`);
+  if (!canvas || canvas.offsetWidth === 0) return;
+  drawSparkline(canvas, points);
+  if (!state.sparklineObservers.has(ticker)) {
+    const ro = new ResizeObserver(() => {
+      const hist = state.history.get(ticker);
+      if (hist?.points?.length >= 2) drawSparkline(canvas, hist.points);
+    });
+    ro.observe(canvas);
+    state.sparklineObservers.set(ticker, ro);
+  }
+}
+
+/** Desconecta ResizeObservers de sparkline. */
+function teardownSparklineObservers() {
+  for (const [, ro] of state.sparklineObservers) ro.disconnect();
+  state.sparklineObservers.clear();
 }
 
 /* ----------------------------------------------------------------
@@ -699,7 +786,8 @@ function updateCardStars() {
 
 /* ----------------------------------------------------------------
    Modal — exibe cotação detalhada do ativo (Fase 3: dados reais;
-   Fase 5 preencherá com gráfico de histórico)
+   Fase 5: gráfico de candlestick/linha em canvas com controles de range,
+   tipo e hover-tooltips. Interativo e responsivo via ResizeObserver.)
    ---------------------------------------------------------------- */
 function openModal(ticker) {
   const stock = state.stocks.find((s) => s.ticker === ticker);
@@ -738,10 +826,31 @@ function openModal(ticker) {
       </div>
     `;
   } else {
-    detailsHtml = `
-      <p class="modal__placeholder">Carregando cotação…</p>
-    `;
+    detailsHtml = `<p class="modal__placeholder">Carregando cotação…</p>`;
   }
+
+  // Fase 5: área do gráfico com controles
+  const chartHtml = `
+    <div class="modal__chart-section">
+      <div class="modal__chart-controls">
+        <div class="modal__chart-types" role="group" aria-label="Tipo de gráfico">
+          <button class="modal__chart-btn is-active" data-chart-type="candlestick" type="button" title="Candlestick">📊</button>
+          <button class="modal__chart-btn" data-chart-type="line" type="button" title="Linha">📈</button>
+        </div>
+        <div class="modal__chart-ranges" role="group" aria-label="Período">
+          <button class="modal__chart-btn" data-chart-range="5d" type="button">5d</button>
+          <button class="modal__chart-btn is-active" data-chart-range="1mo" type="button">1m</button>
+          <button class="modal__chart-btn" data-chart-range="3mo" type="button">3m</button>
+          <button class="modal__chart-btn" data-chart-range="6mo" type="button">6m</button>
+          <button class="modal__chart-btn" data-chart-range="1y" type="button">1a</button>
+        </div>
+      </div>
+      <div class="modal__chart-wrap">
+        <canvas class="modal__chart" id="modal-chart" aria-label="Gráfico de histórico"></canvas>
+        <div class="modal__chart-loading" id="modal-chart-loading" hidden>Carregando histórico…</div>
+      </div>
+    </div>
+  `;
 
   els.modalContent.innerHTML = `
     <button class="modal__close" data-modal-close aria-label="Fechar">✕</button>
@@ -754,16 +863,148 @@ function openModal(ticker) {
       </div>
     </div>
     ${detailsHtml}
-    <p class="modal__hint">Gráfico de histórico disponível na Fase 5.</p>
+    ${chartHtml}
   `;
   els.modal.hidden = false;
   els.modal.setAttribute('aria-hidden', 'false');
+
+  // Fase 5: inicializa o gráfico do modal
+  initModalChart(ticker);
+}
+
+/* ----------------------------------------------------------------
+   Fase 5 — Gráfico detalhado do modal
+   Estado em state.modalChart; busca histórico via fetchHistory.
+   Controles: tipo (candlestick/line) e range (5d, 1mo, 3mo, 6mo, 1y).
+   Interatividade: hover mostra tooltip com OHLCV.
+   Responsividade: ResizeObserver redesenha no resize.
+   ---------------------------------------------------------------- */
+function initModalChart(ticker) {
+  const canvas = $('#modal-chart');
+  const loadingEl = $('#modal-chart-loading');
+  if (!canvas) return;
+
+  // Estado do gráfico
+  state.modalChart = {
+    ticker,
+    canvas,
+    history: null,
+    type: 'candlestick',
+    range: MODAL_CHART_RANGE,
+    interval: MODAL_CHART_INTERVAL,
+    hoverIndex: -1,
+    rafId: null,
+    resizeObserver: null,
+  };
+
+  // Binding dos botões de controle
+  const controls = els.modalContent.querySelector('.modal__chart-controls');
+  if (controls) {
+    controls.addEventListener('click', (e) => {
+      const typeBtn = e.target.closest('[data-chart-type]');
+      const rangeBtn = e.target.closest('[data-chart-range]');
+      if (typeBtn) {
+        state.modalChart.type = typeBtn.dataset.chartType;
+        updateChartControlButtons(controls, 'type', typeBtn);
+        chartRender();
+      }
+      if (rangeBtn) {
+        state.modalChart.range = rangeBtn.dataset.chartRange;
+        updateChartControlButtons(controls, 'range', rangeBtn);
+        chartLoad(); // novo range → refetch
+      }
+    });
+  }
+
+  // Hover → tooltip
+  canvas.addEventListener('mousemove', (e) => {
+    if (!state.modalChart?.history?.points?.length) return;
+    const idx = getChartPointAt(canvas, e.clientX);
+    if (idx !== state.modalChart.hoverIndex) {
+      state.modalChart.hoverIndex = idx;
+      chartRender();
+    }
+  });
+  canvas.addEventListener('mouseleave', () => {
+    if (state.modalChart && state.modalChart.hoverIndex !== -1) {
+      state.modalChart.hoverIndex = -1;
+      chartRender();
+    }
+  });
+
+  // ResizeObserver para responder a mudanças de tamanho do modal
+  state.modalChart.resizeObserver = new ResizeObserver(() => {
+    if (state.modalChart?.history) chartRender();
+  });
+  state.modalChart.resizeObserver.observe(canvas);
+
+  // Carrega usando histórico do state.history se disponível e mesmo range
+  const cached = state.history.get(ticker);
+  if (cached && cached.range === state.modalChart.range) {
+    state.modalChart.history = cached;
+    chartRender();
+  } else {
+    chartLoad();
+  }
+}
+
+function updateChartControlButtons(container, kind, activeBtn) {
+  const attr = kind === 'type' ? 'data-chart-type' : 'data-chart-range';
+  container.querySelectorAll(`[${attr}]`).forEach((b) => {
+    b.classList.toggle('is-active', b === activeBtn);
+  });
+}
+
+/** Busca histórico e renderiza. */
+async function chartLoad() {
+  if (!state.modalChart) return;
+  const { ticker, range, interval } = state.modalChart;
+  const loadingEl = $('#modal-chart-loading');
+  if (loadingEl) loadingEl.hidden = false;
+
+  try {
+    const hist = await fetchHistory(ticker, range, interval);
+    state.modalChart.history = hist;
+    // Atualiza state.history para o sparkline aproveitar
+    state.history.set(ticker, hist);
+    chartRender();
+  } catch (e) {
+    console.error(`[modal-chart] ${e.message}`);
+    if (loadingEl) {
+      loadingEl.hidden = true;
+      loadingEl.textContent = `Erro: ${e.message}`;
+      loadingEl.hidden = false;
+    }
+    return;
+  }
+  if (loadingEl) loadingEl.hidden = true;
+}
+
+/** Renderiza o gráfico (debounce via rAF). */
+function chartRender() {
+  if (!state.modalChart) return;
+  const mc = state.modalChart;
+  if (mc.rafId) cancelAnimationFrame(mc.rafId);
+  mc.rafId = requestAnimationFrame(() => {
+    if (!mc.history) return;
+    drawChart(mc.canvas, mc.history, {
+      type: mc.type,
+      showVolume: true,
+      hoverIndex: mc.hoverIndex,
+    });
+  });
 }
 
 function closeModal() {
   if (els.modal.hidden) return;
   els.modal.hidden = true;
   els.modal.setAttribute('aria-hidden', 'true');
+  // Fase 5: limpa estado do gráfico do modal + ResizeObserver
+  if (state.modalChart?.resizeObserver) {
+    state.modalChart.resizeObserver.disconnect();
+  }
+  if (state.modalChart?.rafId) cancelAnimationFrame(state.modalChart.rafId);
+  state.modalChart = null;
 }
 
 /* ----------------------------------------------------------------
@@ -821,9 +1062,11 @@ if (document.readyState === 'loading') {
 // Exporta funções que fases posteriores reaproveitarão
 export {
   state, els, renderCard, renderCards, renderSkeletons,
-  fetchQuote, fetchMultiple, fetchAvailable, setToken, hasToken, clearCache,
+  fetchQuote, fetchMultiple, fetchAvailable, fetchHistory, setToken, hasToken, clearCache, clearHistoryCache,
   // Fase 4
   switchView, getDisplayedStocks,
   loadWatchlist, addToWatchlist, removeFromWatchlist,
   toggleWatchlist, hasInWatchlist, clearWatchlist, watchlistSize,
+  // Fase 5
+  drawSparkline, drawChart, refreshSparklines,
 };

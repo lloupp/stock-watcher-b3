@@ -58,6 +58,27 @@ O token é salvo no `localStorage` e usado automaticamente em todas as
 requisições. Para limpar: `SW.clearCache()` após remover com
 `localStorage.removeItem('brapi_token')`.
 
+### Gráficos em Canvas (Fase 5)
+
+O app usa Canvas puro (sem bibliotecas externas) para dois tipos de gráfico:
+
+**Sparkline nos cards** — mini-gráfico de linha no rodapé de cada card,
+mostrando os últimos 5 dias úteis de fechamento. A cor (verde/vermelho)
+reflete a tendência do período. Atualiza junto com as cotações a cada 60s.
+
+**Gráfico detalhado no modal** — ao clicar num card, abre um modal com:
+
+- **Candlestick** (padrão) ou **linha** — alterne com os botões 📊/📈
+- **Períodos**: 5d, 1m, 3m, 6m, 1a — o gráfico refaz a busca ao trocar
+- **Volume** — barras na parte inferior, coloridas conforme o candle
+- **Eixos** — preço (R$) à esquerda, datas na base
+- **Tooltip interativo** — passe o mouse sobre o gráfico para ver
+  data, abertura, máxima, mínima, fechamento e volume do candle
+- **Responsivo** — redesenha no resize (ResizeObserver) e HiDPI-aware
+
+Histórico obtido via parâmetros `range` e `interval` do endpoint `/quote`
+da brapi.dev (campo `historicalDataPrice`), com cache de 5min.
+
 ### API de debug
 
 O objeto `window.SW` expõe (no console do navegador):
