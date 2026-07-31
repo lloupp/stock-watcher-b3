@@ -32,7 +32,9 @@ stock-watcher-b3/
 │   ├── app.js           — lógica principal
 │   ├── api.js           — cliente da API brapi
 │   ├── charts.js        — gráficos em Canvas
-│   ├── watchlist.js     — gestão de watchlist
+│   ├── filters.js       — busca, filtros e ordenação
+│   ├── watchlist.js     — gestão de watchlist (localStorage)
+│   ├── toast.js         — notificações toast
 │   └── utils.js         — utilidades (formatação, helpers)
 ├── data/
 │   └── default-stocks.json — lista de ativos populares da B3
@@ -78,6 +80,39 @@ reflete a tendência do período. Atualiza junto com as cotações a cada 60s.
 
 Histórico obtido via parâmetros `range` e `interval` do endpoint `/quote`
 da brapi.dev (campo `historicalDataPrice`), com cache de 5min.
+
+### Polimento e Extras (Fase 7)
+
+**Animação de entrada dos cards** — ao renderizar o grid (troca de view,
+busca, filtros), os cards aparecem em cascata com um leve *fade + slide-up*
+escalonado (stagger). A animação respeita `prefers-reduced-motion` (desativada
+para quem prefere menos movimento).
+
+**Indicador de mercado aberto/fechado** — no header, um dot colorido mostra
+se a B3 está em pregão (verde, pulsante) ou fechada (vermelho, estático). O
+horário de pregão é 10h–17h (Brasil/São Paulo), dias úteis. O status é
+reavaliado a cada minuto, então o indicador muda sozinho se o app ficar
+aberto.
+
+**Toast notifications** — feedback visual discreto no canto inferior direito
+para ações do usuário:
+
+- ✅ Adicionar ativo à watchlist
+- ℹ️ Remover ativo da watchlist
+- ⚠️ Ticker já presente na watchlist
+- ✕ Falha ao carregar cotações
+- ℹ️ Watchlist limpa
+
+Os toasts são auto-dismiss (4–6s), empilháveis, e respeitam
+`prefers-reduced-motion`. Cada um tem um botão ✕ para fechar manualmente.
+
+**Modal de detalhes** — clicar num card abre o modal com:
+
+- Preço grande + variação (com valor absoluto)
+- Grid 2×2: abertura, fechamento anterior, máx/mín do dia, volume,
+  market cap, faixa de 52 semanas, P/L
+- Gráfico de candlestick/linha com controles de período (5d–1a)
+- Tooltip interativo (hover) com OHLCV
 
 ### API de debug
 

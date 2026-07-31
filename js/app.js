@@ -18,6 +18,8 @@ import {
   loadWatchlist, addToWatchlist, removeFromWatchlist,
   toggleWatchlist, hasInWatchlist, clearWatchlist, watchlistSize, replaceWatchlist,
 } from './watchlist.js';
+// Fase 7: toast notifications para feedback de ações do usuário
+import { toast } from './toast.js';
 
 /* ----------------------------------------------------------------
    Configuração
@@ -115,12 +117,17 @@ async function init() {
       applyFilters, collectSectors, countVariations, SORT_KEYS,
       reset: resetAllFilters,
     },
+    // Fase 7: toast notifications
+    toast,
   };
 
   bindEvents();
   // Fase 6: popula o <select> de ordenação com base em SORT_KEYS
   populateSortOptions();
   renderMarketStatus();
+  // Fase 7: reavalia o status do mercado a cada 60s — o app pode ficar
+  // aberto enquanto o pregão abre/fecha, e o indicador precisa refletir isso.
+  setInterval(renderMarketStatus, 60_000);
   updateWatchlistBadge();
   updateWatchlistToolbar();
   await loadDefaultStocks();
@@ -166,6 +173,8 @@ async function refreshQuotes() {
     }
   } catch (err) {
     console.error('Falha ao carregar cotações:', err);
+    // Fase 7: toast de erro visível para o usuário (não spammo em auto-refresh silencioso)
+    toast.error('Falha ao carregar cotações. Verifique sua conexão.');
   } finally {
     state.loading = false;
     updateRefreshIndicator(false);
@@ -316,10 +325,38 @@ function renderCards() {
     .map((s) => renderCard(s))
     .join('');
 
+  // Fase 7: animação de entrada stagger dos cards
+  staggerCardEntrance();
+
   updateGridMeta(filtered.length);
 
   // Fase 5: se já há histórico em cache, desenha os sparklines imediatamente
   drawAllSparklines();
+}
+
+/* ----------------------------------------------------------------
+   Fase 7 — Animação de entrada dos cards (stagger)
+   Aplica um delay incremental para que os cards apareçam em cascata
+   ao trocar de view, buscar ou limpar filtros. Respeita
+   prefers-reduced-motion (CSS zera o duration nesses casos).
+   ---------------------------------------------------------------- */
+function staggerCardEntrance() {
+  const cards = els.cardsGrid.querySelectorAll('.card:not(.is-animating-in)');
+  if (cards.length === 0) return;
+  const MAX_STAGGER = 12;        // limpa o delay a partir do 13º card
+  const STEP_MS = 35;
+  cards.forEach((card, i) => {
+    card.classList.add('is-animating-in');
+    const delay = Math.min(i, MAX_STAGGER) * STEP_MS;
+    card.style.animationDelay = `${delay}ms`;
+    // Remove a classe ao fim da animação para poder reanimar depois
+    const cleanup = () => {
+      card.classList.remove('is-animating-in');
+      card.style.animationDelay = '';
+      card.removeEventListener('animationend', cleanup);
+    };
+    card.addEventListener('animationend', cleanup, { once: true });
+  });
 }
 
 function renderCard(stock) {
@@ -819,6 +856,12 @@ function handleWatchlistToggle(ticker) {
   state.watchlist = list;
   updateWatchlistBadge();
   updateCardStar(ticker);
+  // Fase 7: toast de feedback para adicionar/remover da watchlist
+  if (added) {
+    toast.success(`${ticker} adicionado à watchlist`);
+  } else {
+    toast.info(`${ticker} removido da watchlist`);
+  }
   console.log(`[watchlist] ${added ? '+' : '-'} ${ticker} → total ${list.length}`);
 
   // Se estamos na view de watchlist e o ticker foi removido, ele some do grid.
@@ -881,12 +924,30 @@ function handleAddToWatchlist() {
 
   // Substitui a watchlist inteira mantendo a ordem existente + novos no final
   const before = state.watchlist.slice();
+  const alreadyPresent = [];
+  const newlyAdded = [];
   for (const t of tickers) {
-    if (!state.watchlist.includes(t)) state.watchlist.push(t);
+    if (!state.watchlist.includes(t)) {
+      state.watchlist.push(t);
+      newlyAdded.push(t);
+    } else {
+      alreadyPresent.push(t);
+    }
   }
   replaceWatchlist(state.watchlist);
 
   const addedCount = state.watchlist.length - before.length;
+  // Fase 7: toasts contextuais (novo, já-presente, nenhum)
+  if (newlyAdded.length > 0) {
+    toast.success(
+      newlyAdded.length === 1
+        ? `${newlyAdded[0]} adicionado à watchlist`
+        : `${newlyAdded.length} ativos adicionados: ${newlyAdded.join(', ')}`
+    );
+  }
+  if (alreadyPresent.length > 0 && newlyAdded.length === 0) {
+    toast.warn(`${alreadyPresent.join(', ')} já está(vão) na sua watchlist`);
+  }
   console.log(`[watchlist] +${addedCount} ticker(s) (${tickers.join(', ')}) → total ${state.watchlist.length}`);
 
   els.watchlistInput.value = '';
@@ -916,6 +977,8 @@ function handleClearWatchlist() {
   updateWatchlistBadge();
   renderCards();
   updateCardStars();
+  // Fase 7: feedback ao limpar
+  toast.info('Watchlist limpa');
   console.log('[watchlist] limpa');
 }
 

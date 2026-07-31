@@ -1276,3 +1276,33 @@ input { font-family: inherit; }
     justify-content: center;
   }
 }
+
+/* ================================================================
+   Fase 7 — Polimento: animação de entrada dos cards (stagger)
+   ================================================================ */
+@keyframes cardEntrance {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+/* A classe é aplicada via JS com animation-delay escalonado.
+   Removida no fim da animação (animationend) para poder reanimar depois. */
+.card.is-animating-in {
+  animation: cardEntrance 0.32s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/* prefers-reduced-motion: o reset global já zera animation-duration,
+   mas garantimos também que a classe não cause deslocamento residual. */
+@media (prefers-reduced-motion: reduce) {
+  .card.is-animating-in {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
