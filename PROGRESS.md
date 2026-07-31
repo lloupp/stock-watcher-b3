@@ -3,7 +3,7 @@
 Este arquivo controla o progresso do desenvolvimento automatizado via cron job.
 Cada fase é executada em uma execução do cron, com commit e push ao final.
 
-## Status: Fase 1 concluída — próxima: Fase 2
+## Status: Fase 2 concluída — próxima: Fase 3
 
 ## Fases
 
@@ -16,11 +16,12 @@ Cada fase é executada em uma execução do cron, com commit e push ao final.
 - Commit: "feat: layout e UI base"
 - Concluído em 2026-07-31 — commit 9ecf2c6: header sticky com logo + status de mercado, busca com filtro client-side, grid responsivo (auto-fill), cards com ticker/nome/setor/preço/variação/volume/market cap, skeleton loading, footer créditos brapi.dev, modal base, CSS tema escuro completo com breakpoints mobile. API brapi.dev validada via curl (HTTP 200).
 
-### Fase 2 — Cliente da API brapi.dev [PENDENTE]
+### Fase 2 — Cliente da API brapi.dev [CONCLUÍDO]
 - Implementar js/api.js: fetchQuote(ticker), fetchAvailable(), fetchMultiple(tickers)
 - Tratamento de erros e loading states
 - Cache simples em memória (evitar requests duplicadas)
 - Commit: "feat: cliente da API brapi.dev"
+- Concluído em 2026-07-31 — commit 8f98864: fetchQuote/fetchMultiple/fetchAvailable/normalizeQuote prontos. fetchMultiple faz batching de 3 tickers (limite sem token) com fallback automático para requisições individuais e mapeamento de erro por-ticker via Map (não aborta o lote). Cache em memória com TTL 60s (cache hit confirmado em teste: 1ms na 2ª chamada). Suporte opcional a token via localStorage (brapi_token) — exportado setToken/hasToken, buildQuery injeta ?token= em todos os endpoints. app.js importa api.js e expõe window.SW para debug no console. README atualizado com doc de token e API de debug. Limitação real da API brapi.dev sem token documentada empiricamente: ~3-4 tickers distintos por IP. Testes: curl HTTP 200, node --check OK em todos os JS, JSON válido, teste de integração real confirmou cache e fallback.
 
 ### Fase 3 — Cards de Ações com Dados Reais [PENDENTE]
 - Renderizar cards com dados da API (preço, variação, volume, market cap)
