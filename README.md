@@ -71,6 +71,30 @@ SW.getCacheState()                   // estado do cache em memória
 SW.state                             // estado interno do app
 ```
 
+### Watchlist (localStorage)
+
+A watchlist é persistida no `localStorage` (`sw_watchlist`), então ela
+sobrevive a recarregamentos. Você pode adicionar ativos de três formas:
+
+1. **Estrela (★/☆) no card** — clique/batida/teclado para alternar
+2. **Botão "Adicionar"** na aba Watchlist — digite um ou mais tickers
+   (separados por vírgula ou espaço), ex: `PETR4, VALE3, ABEV3`
+3. **Console** via `window.SW.watchlist`:
+
+```js
+SW.watchlist.add('PETR4')           // adiciona
+SW.watchlist.remove('PETR4')        // remove
+SW.watchlist.toggle('PETR4')        // alterna → { list, added }
+SW.watchlist.has('PETR4')            // true/false
+SW.watchlist.load()                  // carrega array guardado
+SW.watchlist.size()                  // número de ativos
+SW.watchlist.replace(['PETR4','VALE3']) // sobrescreve (com dedup)
+SW.watchlist.clear()                 // limpa todos
+```
+
+> Tickers são sempre guardados em uppercase e sem duplicatas. A ordem
+> reflete a ordem em que foram adicionados.
+
 ## Desenvolvimento
 
 Projeto construído incrementalmente via cron job de desenvolvimento automatizado.

@@ -49,9 +49,39 @@
   <main class="main">
     <div class="main__inner">
       <div class="main__header">
-        <h2 class="main__title" id="grid-title">Ações populares</h2>
+        <div class="main__tabs" id="view-tabs" role="tablist" aria-label="Visualização">
+          <button type="button" class="main__tab is-active" role="tab" aria-selected="true" data-view="popular">
+            <span class="tab-icon" aria-hidden="true">🔥</span> Populares
+          </button>
+          <button type="button" class="main__tab" role="tab" aria-selected="false" data-view="watchlist">
+            <span class="tab-icon" aria-hidden="true">⭐</span> Watchlist
+            <span class="tab-badge" id="watchlist-count" hidden>0</span>
+          </button>
+        </div>
         <div class="main__meta" id="grid-meta"></div>
       </div>
+
+      <!-- Toolbar de watchlist: adicionar por ticker + limpar -->
+      <div id="watchlist-toolbar" class="watchlist-toolbar" hidden>
+        <div class="watchlist-add">
+          <span class="watchlist-add__icon" aria-hidden="true">＋</span>
+          <input
+            type="text"
+            id="watchlist-input"
+            class="watchlist-add__input"
+            placeholder="Adicionar ticker (ex: PETR4, VALE3)…"
+            autocomplete="off"
+            spellcheck="false"
+            aria-label="Adicionar ticker à watchlist"
+          >
+          <button id="watchlist-add-btn" class="watchlist-add__btn" type="button">Adicionar</button>
+        </div>
+        <button id="watchlist-clear" class="watchlist-clear" type="button" aria-label="Limpar watchlist" title="Remover todos os ativos da watchlist">
+          Limpar
+        </button>
+      </div>
+
+      <h2 class="main__title" id="grid-title">Ações populares</h2>
 
       <!-- Loading state (Fase 2 preencherá com dados reais; a Fase 1 exibe skeleton) -->
       <div id="cards-grid" class="cards-grid" aria-live="polite">
@@ -61,7 +91,7 @@
       <!-- Empty state -->
       <div id="empty-state" class="empty-state" hidden>
         <span class="empty-icon">📭</span>
-        <p>Nenhum ativo encontrado.</p>
+        <p><span class="empty-title">Nenhum ativo encontrado.</span><span class="empty-sub"></span></p>
       </div>
     </div>
   </main>

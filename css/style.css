@@ -640,6 +640,239 @@ input { font-family: inherit; }
 }
 
 /* ================================================================
+   Fase 4 — Tabs de view-switch (Populares / Watchlist)
+   ================================================================ */
+.main__tabs {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 4px;
+}
+
+.main__tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 14px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--text-secondary);
+  border-radius: 6px;
+  transition: background var(--transition), color var(--transition);
+  white-space: nowrap;
+}
+
+.main__tab:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.main__tab.is-active {
+  background: var(--accent);
+  color: #1a1410;
+}
+
+.main__tab.is-active:hover {
+  color: #1a1410;
+}
+
+.main__tab:focus-visible {
+  outline-offset: 2px;
+}
+
+.tab-icon {
+  font-size: 0.95em;
+  line-height: 1;
+}
+
+.tab-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  border-radius: 9px;
+  background: var(--border-light);
+  color: inherit;
+  line-height: 1;
+}
+
+.main__tab.is-active .tab-badge {
+  background: rgba(26, 20, 16, 0.18);
+  color: #1a1410;
+}
+
+/* ================================================================
+   Fase 4 — Toolbar de watchlist (adicionar ticker + limpar)
+   ================================================================ */
+.watchlist-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+}
+
+.watchlist-add {
+  position: relative;
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 260px;
+  max-width: 520px;
+}
+
+.watchlist-add__icon {
+  position: absolute;
+  left: 12px;
+  font-size: 0.95rem;
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.watchlist-add__input {
+  width: 100%;
+  padding: 10px 14px 10px 32px;
+  background: var(--bg-input);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 0.9rem;
+  transition: border var(--transition), box-shadow var(--transition);
+}
+
+.watchlist-add__input::placeholder {
+  color: var(--text-muted);
+}
+
+.watchlist-add__input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.15);
+}
+
+.watchlist-add__btn {
+  padding: 10px 18px;
+  margin-left: 8px;
+  background: var(--accent);
+  color: #1a1410;
+  font-weight: 600;
+  font-size: 0.88rem;
+  border-radius: var(--radius-sm);
+  transition: background var(--transition), transform var(--transition);
+  white-space: nowrap;
+}
+
+.watchlist-add__btn:hover {
+  background: #fbbf24;
+}
+
+.watchlist-add__btn:active {
+  transform: scale(0.97);
+}
+
+.watchlist-clear {
+  padding: 9px 16px;
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.85rem;
+  font-weight: 500;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+
+.watchlist-clear:hover {
+  color: var(--red);
+  border-color: var(--red);
+  background: var(--red-bg);
+}
+
+/* ================================================================
+   Fase 4 — Botão de estrela nos cards (★ watchlist toggle)
+   ================================================================ */
+.card__star {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.15rem;
+  line-height: 1;
+  color: var(--text-muted);
+  background: transparent;
+  border-radius: 50%;
+  z-index: 2;
+  transition: color var(--transition), background var(--transition), transform 0.15s ease;
+}
+
+.card__star:hover {
+  background: var(--bg-hover);
+  color: var(--accent);
+  transform: scale(1.12);
+}
+
+.card__star:active {
+  transform: scale(0.92);
+}
+
+.card__star.is-active {
+  color: var(--accent);
+}
+
+.card__star.is-active:hover {
+  color: #fbbf24;
+}
+
+/* Quando o card está loading (primeira cotação), desloca a estrela p/ o canto
+   para não colidir com o spinner (que também fica no canto superior direito). */
+.card.is-loading .card__star {
+  top: 10px;
+  right: 36px; /* abre espaço para o spinner de 14px + margem */
+}
+
+/* Animação de saída ao remover um ativo da watchlist (na view de watchlist) */
+.card.is-leaving {
+  opacity: 0;
+  transform: scale(0.92);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+  pointer-events: none;
+}
+
+/* ================================================================
+   Fase 4 — Estado vazio (empty-state) com título + subtítulo
+   ================================================================ */
+.empty-state p {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+}
+
+.empty-title {
+  font-size: 1rem;
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.empty-sub {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+  max-width: 480px;
+  line-height: 1.4;
+}
+
+/* ================================================================
    Responsividade
    ================================================================ */
 @media (max-width: 768px) {
@@ -658,6 +891,16 @@ input { font-family: inherit; }
   }
   .card { padding: 14px; }
   .card__price-value { font-size: 1.3rem; }
+
+  /* Fase 4: tabs compactas no mobile */
+  .main__tab { padding: 6px 10px; font-size: 0.82rem; }
+  .main__header { gap: 8px; }
+
+  /* Fase 4: toolbar de watchlist empilha no mobile */
+  .watchlist-toolbar { gap: 8px; }
+  .watchlist-add { min-width: 100%; }
+  .watchlist-add__btn { padding: 10px 14px; }
+  .watchlist-clear { width: 100%; padding: 8px; }
 }
 
 @media (max-width: 480px) {

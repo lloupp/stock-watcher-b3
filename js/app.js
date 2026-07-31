@@ -2,12 +2,18 @@
 // Fase 1: Layout e UI base, grid de cards, busca client-side sobre default-stocks
 // Fase 2: importa o cliente da API brapi.dev
 // Fase 3: renderiza cards com dados reais, logo, cores, auto-refresh a cada 60s
+// Fase 4: watchlist persistida em localStorage, tabs Populares/Watchlist,
+//          botão ⭐ nos cards, adicionar/remover, toolbar de importação rápida
 
 import { formatCurrency, formatVolume, formatPercent, formatMarketCap, changeClass } from './utils.js';
 import {
   fetchQuote, fetchMultiple, fetchAvailable,
   setToken, hasToken, clearCache, getCacheState,
 } from './api.js';
+import {
+  loadWatchlist, addToWatchlist, removeFromWatchlist,
+  toggleWatchlist, hasInWatchlist, clearWatchlist, watchlistSize, replaceWatchlist,
+} from './watchlist.js';
 
 /* ----------------------------------------------------------------
    Configuração
@@ -20,6 +26,8 @@ const REFRESH_INTERVAL = 60_000;
    ---------------------------------------------------------------- */
 const state = {
   stocks: [],          // lista de ativos (default-stocks.json)
+  watchlist: [],       // tickers guardados pelo usuário (array de strings)
+  view: 'popular',     // view ativa: 'popular' | 'watchlist'
   query: '',           // termo de busca atual
   quotes: new Map(),    // cache de cotações da API (ticker → normalized quote)
   loading: false,      // carregando cotações?
@@ -43,29 +51,49 @@ const els = {
   marketStatus: $('#market-status'),
   modal: $('#modal'),
   modalContent: $('#modal-content'),
+  // Fase 4: tabs e toolbar de watchlist
+  viewTabs: $('#view-tabs'),
+  watchlistCount: $('#watchlist-count'),
+  watchlistToolbar: $('#watchlist-toolbar'),
+  watchlistInput: $('#watchlist-input'),
+  watchlistAddBtn: $('#watchlist-add-btn'),
+  watchlistClear: $('#watchlist-clear'),
 };
 
 /* ----------------------------------------------------------------
    Inicialização
    ---------------------------------------------------------------- */
 async function init() {
-  console.log('Stock Watcher B3 — inicializando... (Fase 3: cards com dados reais + auto-refresh)');
+  console.log('Stock Watcher B3 — inicializando... (Fase 4: watchlist com localStorage)');
   console.log(hasToken()
     ? '[brapi] Token configurado no localStorage (limites completos).'
     : '[brapi] Sem token no localStorage — limite gratuito: ~3-4 tickers/IP. Use setApiToken() no console para configurar.');
+
+  // Fase 4: carrega watchlist persistida ao abrir o app
+  state.watchlist = loadWatchlist();
+  console.log(`[watchlist] Carregados ${state.watchlist.length} ativo(s): ${state.watchlist.join(', ') || '—'}`);
 
   // Expõe API de depuração no window (acessível via console do navegador)
   window.SW = {
     fetchQuote, fetchMultiple, fetchAvailable,
     setApiToken: setToken, hasToken, clearCache, getCacheState, state,
     refreshNow: refreshQuotes,
+    // Fase 4: API de watchlist no console
+    watchlist: {
+      load: loadWatchlist, add: addToWatchlist, remove: removeFromWatchlist,
+      toggle: toggleWatchlist, has: hasInWatchlist, clear: clearWatchlist,
+      size: watchlistSize, replace: replaceWatchlist,
+    },
   };
 
   bindEvents();
   renderMarketStatus();
+  updateWatchlistBadge();
+  updateWatchlistToolbar();
   await loadDefaultStocks();
   renderCards();
   // Fase 3: busca cotações reais para preencher os cards
+  // Fase 4: inclui tickers da watchlist que não estão nos defaults
   await refreshQuotes();
   startAutoRefresh();
 }
@@ -73,15 +101,30 @@ async function init() {
 /* ----------------------------------------------------------------
    Carrega cotações reais da API e atualiza os cards.
    Usa fetchMultiple (com batching) para respeitar o limite sem token.
+   Fase 4: também busca cotações de tickers da watchlist que não
+   estão no default-stocks.json (para mostrar preço mesmo sem metadata).
    ---------------------------------------------------------------- */
 async function refreshQuotes() {
-  if (state.stocks.length === 0) return;
+  // Lista de ativos exibidos depende da view ativa
+  const displayed = getDisplayedStocks();
+  if (displayed.length === 0) return;
   state.loading = true;
   updateRefreshIndicator(true);
 
-  const tickers = state.stocks.map((s) => s.ticker);
+  // Combina tickers exibidos + watchlist (para manter cards da watchlist frescos
+  // mesmo quando o usuário está na aba Populares).
+  const displayTickers = displayed.map((s) => s.ticker);
+  const watchlistTickers = state.watchlist.filter(
+    (t) => !displayTickers.includes(t)
+  );
+  // Se estamos na view "watchlist", os tickers já estão em displayTickers;
+  // só adiciona extras se houver watchlist fora do display.
+  const allTickers = state.view === 'watchlist'
+    ? displayTickers
+    : [...displayTickers, ...watchlistTickers];
+
   try {
-    const map = await fetchMultiple(tickers);
+    const map = await fetchMultiple(allTickers);
     // Mescla no state.quotes Map
     for (const [ticker, data] of map.entries()) {
       if (data && !data.__error && !data.__loading) {
@@ -95,6 +138,8 @@ async function refreshQuotes() {
     updateRefreshIndicator(false);
     // Re-renderiza apenas os valores (sem reconstruir todo o DOM)
     updateCardsWithData();
+    // Atualiza o título/meta caso a view seja watchlist e dados mudaram
+    if (state.view === 'watchlist') updateGridMeta(getDisplayedStocks().length);
   }
 }
 
@@ -134,7 +179,10 @@ async function loadDefaultStocks() {
     console.error('Falha ao carregar default-stocks.json:', err);
     els.cardsGrid.innerHTML = '';
     els.emptyState.hidden = false;
-    els.emptyState.querySelector('p').textContent = 'Erro ao carregar lista de ativos.';
+    const t = els.emptyState.querySelector('.empty-title');
+    if (t) t.textContent = 'Erro ao carregar lista de ativos.';
+    const sub = els.emptyState.querySelector('.empty-sub');
+    if (sub) sub.textContent = `Detalhe: ${err.message || err}`;
     state.stocks = [];
   }
 }
@@ -144,14 +192,55 @@ async function loadDefaultStocks() {
    Fase 1: layout esqueleto (ticker, nome, setor, placeholders).
    Fase 3: injeta dados reais da API quando disponíveis em state.quotes;
    caso contrário mostra "—" com spinner enquanto carrega.
+   Fase 4: respeita a view ativa (popular | watchlist); botão ⭐ no card.
    ---------------------------------------------------------------- */
+function getDisplayedStocks() {
+  if (state.view === 'watchlist') {
+    // Mostra tickers da watchlist, mesmo que não estejam em default-stocks.
+    // Tenta usar metadados (nome/setor) de state.stocks quando disponível.
+    return state.watchlist.map((ticker) => {
+      const known = state.stocks.find((s) => s.ticker === ticker);
+      if (known) return known;
+      // Ticker guardado mas não no default: usa dados do quote se houver,
+      // senão placeholder genérico.
+      const q = state.quotes.get(ticker);
+      return {
+        ticker,
+        name: q?.shortName || q?.longName || ticker,
+        sector: q ? inferSector(q) : '—',
+      };
+    });
+  }
+  // View 'popular' → default stocks
+  return state.stocks;
+}
+
+// Heurística simples de setor a partir do nome/longName (usado quando o
+// ticker da watchlist não está em default-stocks.json). Não é essencial —
+// só melhora o display do badge de setor.
+function inferSector(quote) {
+  const n = (quote.longName || quote.shortName || '').toLowerCase();
+  if (!n) return '—';
+  if (/banco|itau|bradesco|bank/.test(n)) return 'Bancos';
+  if (/petrol|petro|oil/.test(n)) return 'Petróleo';
+  if (/miner|mining/.test(n)) return 'Mineração';
+  if (/energ|electric/.test(n)) return 'Energia';
+  if (/pharma|drug|medic/.test(n)) return 'Farmacêutico';
+  if (/steel|sider/.test(n)) return 'Siderurgia';
+  if (/retail|varejo|magazine/.test(n)) return 'Varejo';
+  if (/beverag|drink|cervej/.test(n)) return 'Bebidas';
+  return '—';
+}
+
 function renderCards() {
-  const filtered = filterStocks(state.stocks, state.query);
+  const displayed = getDisplayedStocks();
+  const filtered = filterStocks(displayed, state.query);
 
   if (filtered.length === 0) {
     els.cardsGrid.innerHTML = '';
     els.emptyState.hidden = false;
-    updateGridMeta(filtered.length);
+    updateEmptyState();
+    updateGridMeta(0);
     return;
   }
 
@@ -189,8 +278,15 @@ function renderCard(stock) {
     ? changeClass(quote.changePercent).replace('is-', 'is-')
     : '';
 
+  // Fase 4: botão de adicionar/remover da watchlist (estrela)
+  const inWatch = hasInWatchlist(ticker);
+  const starLabel = inWatch ? 'Remover da watchlist' : 'Adicionar à watchlist';
+
   return `
     <article class="card ${cardCls}${isFirstLoad ? ' is-loading' : ''}" data-ticker="${ticker}" role="button" tabindex="0" aria-label="Detalhes de ${ticker}">
+      <button class="card__star ${inWatch ? 'is-active' : ''}" data-watch-toggle="${ticker}" type="button" aria-pressed="${inWatch}" aria-label="${starLabel}" title="${starLabel}">
+        <span aria-hidden="true">${inWatch ? '★' : '☆'}</span>
+      </button>
       <div class="card__top">
         <div class="card__logo" data-logo="${ticker}">${logoHtml}</div>
         <div class="card__info">
@@ -315,11 +411,43 @@ function filterStocks(stocks, query) {
 
 function updateGridMeta(count) {
   if (state.query) {
-    els.gridTitle.textContent = `Resultados para "${state.query}"`;
+    els.gridTitle.textContent = state.view === 'watchlist'
+      ? `Resultados na watchlist para "${state.query}"`
+      : `Resultados para "${state.query}"`;
+  } else if (state.view === 'watchlist') {
+    els.gridTitle.textContent = 'Minha watchlist';
   } else {
     els.gridTitle.textContent = 'Ações populares';
   }
   els.gridMeta.textContent = `${count} ${count === 1 ? 'ativo' : 'ativos'}`;
+}
+
+/* ----------------------------------------------------------------
+   Estado vazio contextual (Fase 4)
+   Mensagens diferentes para watchlist vazia vs busca sem resultados.
+   ---------------------------------------------------------------- */
+function updateEmptyState() {
+  const titleEl = els.emptyState.querySelector('.empty-title');
+  const subEl = els.emptyState.querySelector('.empty-sub');
+  const iconEl = els.emptyState.querySelector('.empty-icon');
+
+  if (state.view === 'watchlist' && !state.query) {
+    iconEl.textContent = '⭐';
+    titleEl.textContent = 'Sua watchlist está vazia.';
+    subEl.innerHTML = 'Adicione ativos com o campo acima ou clique na estrela (☆) em qualquer card.';
+  } else if (state.view === 'watchlist' && state.query) {
+    iconEl.textContent = '📭';
+    titleEl.textContent = `Nenhum ativo da watchlist corresponde a "${state.query}".`;
+    subEl.textContent = '';
+  } else if (state.query) {
+    iconEl.textContent = '🔍';
+    titleEl.textContent = `Nenhum ativo encontrado para "${state.query}".`;
+    subEl.textContent = 'Tente outro ticker ou nome.';
+  } else {
+    iconEl.textContent = '📭';
+    titleEl.textContent = 'Nenhum ativo encontrado.';
+    subEl.textContent = '';
+  }
 }
 
 /* ----------------------------------------------------------------
@@ -352,14 +480,71 @@ function bindEvents() {
 
   // Delegação de clique nos cards (abrir modal — placeholder da Fase 5)
   els.cardsGrid.addEventListener('click', (e) => {
+    // Fase 4: botão de watchlist (estrela) tem prioridade — não abre modal
+    const starBtn = e.target.closest('[data-watch-toggle]');
+    if (starBtn) {
+      e.stopPropagation();
+      handleWatchlistToggle(starBtn.dataset.watchToggle);
+      return;
+    }
     const card = e.target.closest('.card');
     if (card) openModal(card.dataset.ticker);
   });
   els.cardsGrid.addEventListener('keydown', (e) => {
+    // Estrela: Enter/Espaço alterna watchlist (não abre modal)
+    const starBtn = e.target.closest('[data-watch-toggle]');
+    if (starBtn && (e.key === 'Enter' || e.key === ' ')) {
+      e.preventDefault();
+      e.stopPropagation();
+      handleWatchlistToggle(starBtn.dataset.watchToggle);
+      return;
+    }
     const card = e.target.closest('.card');
     if (card && (e.key === 'Enter' || e.key === ' ')) {
       e.preventDefault();
       openModal(card.dataset.ticker);
+    }
+  });
+
+  // Fase 4: tabs de view-switch (Populares / Watchlist)
+  els.viewTabs.addEventListener('click', (e) => {
+    const tab = e.target.closest('[data-view]');
+    if (!tab) return;
+    switchView(tab.dataset.view);
+  });
+  els.viewTabs.addEventListener('keydown', (e) => {
+    const tab = e.target.closest('[data-view]');
+    if (!tab) return;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      e.preventDefault();
+      const tabs = [...els.viewTabs.querySelectorAll('[data-view]')];
+      const idx = tabs.indexOf(tab);
+      const dir = e.key === 'ArrowRight' ? 1 : -1;
+      const next = tabs[(idx + dir + tabs.length) % tabs.length];
+      next.focus();
+      switchView(next.dataset.view);
+    }
+  });
+
+  // Fase 4: toolbar de watchlist — adicionar ticker
+  els.watchlistAddBtn.addEventListener('click', handleAddToWatchlist);
+  els.watchlistInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') handleAddToWatchlist();
+  });
+
+  // Fase 4: limpar watchlist inteira
+  els.watchlistClear.addEventListener('click', handleClearWatchlist);
+
+  // Fase 4: sincroniza watchlist caso outra aba do navegador altere o storage
+  window.addEventListener('storage', (e) => {
+    if (e.key === 'sw_watchlist') {
+      state.watchlist = loadWatchlist();
+      updateWatchlistBadge();
+      renderCards();
+      // Atualiza a estrela dos cards sem refetch de cotações
+      updateCardStars();
+      // Se novos tickers entraram, busca cotações deles
+      refreshQuotes();
     }
   });
 }
@@ -375,6 +560,141 @@ function clearSearch() {
   state.query = '';
   els.searchInput.focus();
   renderCards();
+}
+
+/* ----------------------------------------------------------------
+   Fase 4 — Watchlist: handlers e helpers de UI
+   ---------------------------------------------------------------- */
+
+/** Alterna o estado do ticker na watchlist e atualiza apenas a estrela do card. */
+function handleWatchlistToggle(ticker) {
+  const { list, added } = toggleWatchlist(ticker);
+  state.watchlist = list;
+  updateWatchlistBadge();
+  updateCardStar(ticker);
+  console.log(`[watchlist] ${added ? '+' : '-'} ${ticker} → total ${list.length}`);
+
+  // Se estamos na view de watchlist e o ticker foi removido, ele some do grid.
+  if (state.view === 'watchlist' && !added) {
+    // Anima a saída do card
+    const card = els.cardsGrid.querySelector(`.card[data-ticker="${ticker}"]`);
+    if (card) {
+      card.classList.add('is-leaving');
+      setTimeout(() => renderCards(), 180);
+    } else {
+      renderCards();
+    }
+  }
+}
+
+/** Troca a view ativa entre 'popular' e 'watchlist'. */
+function switchView(view) {
+  if (view !== 'popular' && view !== 'watchlist') return;
+  if (state.view === view) return;
+  state.view = view;
+
+  // Atualiza visual das tabs
+  const tabs = els.viewTabs.querySelectorAll('[data-view]');
+  tabs.forEach((t) => {
+    const active = t.dataset.view === view;
+    t.classList.toggle('is-active', active);
+    t.setAttribute('aria-selected', active ? 'true' : 'false');
+  });
+
+  // Mostra/esconde a toolbar de watchlist
+  updateWatchlistToolbar();
+
+  // Limpa a busca ao trocar de view (contexto muda)
+  if (state.query) clearSearch();
+
+  renderCards();
+  // Garante cotações para a nova view (especialmente watchlist com tickers novos)
+  refreshQuotes();
+  console.log(`[view] trocou para "${view}"`);
+}
+
+/** Adiciona ticker(s) à watchlist via toolbar. Aceita múltiplos separados por vírgula. */
+function handleAddToWatchlist() {
+  const raw = els.watchlistInput.value.trim();
+  if (!raw) return;
+  const tickers = raw.split(/[,\s]+/).map((t) => t.trim().toUpperCase()).filter(Boolean);
+  if (tickers.length === 0) return;
+
+  // Substitui a watchlist inteira mantendo a ordem existente + novos no final
+  const before = state.watchlist.slice();
+  for (const t of tickers) {
+    if (!state.watchlist.includes(t)) state.watchlist.push(t);
+  }
+  replaceWatchlist(state.watchlist);
+
+  const addedCount = state.watchlist.length - before.length;
+  console.log(`[watchlist] +${addedCount} ticker(s) (${tickers.join(', ')}) → total ${state.watchlist.length}`);
+
+  els.watchlistInput.value = '';
+  updateWatchlistBadge();
+
+  // Se já está na view watchlist, só atualiza os cards; senão troca para ela.
+  if (state.view !== 'watchlist') {
+    switchView('watchlist');
+  } else {
+    renderCards();
+  }
+
+  // Busca cotação dos tickers novos imediatamente
+  refreshQuotes();
+}
+
+/** Limpa a watchlist inteira após confirmação do usuário. */
+function handleClearWatchlist() {
+  if (watchlistSize() === 0) return;
+  // Confirmação leve — usa window.confirm (aceitável em app 100% client-side)
+  const ok = window.confirm(
+    `Remover todos os ${watchlistSize()} ativo(s) da sua watchlist?\nEsta ação não pode ser desfeita.`
+  );
+  if (!ok) return;
+  clearWatchlist();
+  state.watchlist = [];
+  updateWatchlistBadge();
+  renderCards();
+  updateCardStars();
+  console.log('[watchlist] limpa');
+}
+
+/** Atualiza o badge de tamanho da watchlist (mostra número de ativos). */
+function updateWatchlistBadge() {
+  const n = state.watchlist.length;
+  if (n > 0) {
+    els.watchlistCount.hidden = false;
+    els.watchlistCount.textContent = n;
+  } else {
+    els.watchlistCount.hidden = true;
+  }
+}
+
+/** Mostra/esconde a toolbar de watchlist conforme a view ativa. */
+function updateWatchlistToolbar() {
+  els.watchlistToolbar.hidden = state.view !== 'watchlist';
+}
+
+/** Atualiza o botão ★ de um card específico (após toggle sem re-render). */
+function updateCardStar(ticker) {
+  const card = els.cardsGrid.querySelector(`.card[data-ticker="${ticker}"]`);
+  if (!card) return;
+  const star = card.querySelector('.card__star');
+  if (!star) return;
+  const inWatch = hasInWatchlist(ticker);
+  star.classList.toggle('is-active', inWatch);
+  star.setAttribute('aria-pressed', inWatch);
+  star.setAttribute('aria-label', inWatch ? 'Remover da watchlist' : 'Adicionar à watchlist');
+  star.setAttribute('title', inWatch ? 'Remover da watchlist' : 'Adicionar à watchlist');
+  const span = star.querySelector('span');
+  if (span) span.textContent = inWatch ? '★' : '☆';
+}
+
+/** Reaplica o estado da estrela em todos os cards (após sync de storage). */
+function updateCardStars() {
+  const cards = els.cardsGrid.querySelectorAll('.card[data-ticker]');
+  cards.forEach((card) => updateCardStar(card.dataset.ticker));
 }
 
 /* ----------------------------------------------------------------
@@ -502,4 +822,8 @@ if (document.readyState === 'loading') {
 export {
   state, els, renderCard, renderCards, renderSkeletons,
   fetchQuote, fetchMultiple, fetchAvailable, setToken, hasToken, clearCache,
+  // Fase 4
+  switchView, getDisplayedStocks,
+  loadWatchlist, addToWatchlist, removeFromWatchlist,
+  toggleWatchlist, hasInWatchlist, clearWatchlist, watchlistSize,
 };
