@@ -3,7 +3,7 @@
 Este arquivo controla o progresso do desenvolvimento automatizado via cron job.
 Cada fase é executada em uma execução do cron, com commit e push ao final.
 
-## Status: Fase 7 concluída — próxima: Fase 8
+## Status: Todas as 8 fases concluídas — projeto completo!
 
 ## Fases
 
@@ -66,11 +66,12 @@ Cada fase é executada em uma execução do cron, com commit e push ao final.
 - Commit: "feat: polimento e extras"
 - Concluído em 2026-07-31 — commit 159128e: o módulo js/toast.js (já existia no working tree não-commitado) foi finalizado e commitado — sistema de toasts leve, sem dependências, container fixo bottom-right, variantes success/error/warn/info com ícones, auto-dismiss 4-6s, animações slide-in/leave via transform, responsivo (full-width no mobile), respeita prefers-reduced-motion, botão ✕ manual, role=alert para erro. app.js já integrava toasts em handleWatchlistToggle (+sucesso/-info), handleAddToWatchlist (sucesso novos / warn já-presente), handleClearWatchlist (info), refreshQuotes catch (error). Animação de entrada stagger dos cards (staggerCardEntrance, já no JS) recebeu o CSS faltante: @keyframes cardEntrance (fade + translateY + scale), delay escalonado 35ms até 12 cards, classe auto-removida em animationend, prefers-reduced-motion zera tudo. Indicador de mercado aberto/fechado (renderMarketStatus, já no JS) agora reavalia a cada 60s via setInterval em init() — antes era uma só chamada no boot, agora reflete mudança de pregão com o app aberto. Modal de detalhes já existia desde Fase 3/5 (grid 2x2 com abertura/fech.anterior/máx/mín/volume/mcap/faixa 52sem/P/L + gráfico candlestick/linha). README atualizado: nova seção "Polimento e Extras (Fase 7)" documentando animação de entrada, indicador de mercado, toasts (com lista de variantes) e modal de detalhes; árvore de arquivos corrigida (adicionados filters.js e toast.js). Testes: node --check OK em todos os 7 JS, JSON válido, imports ES module todos cobertos (app.js importa de utils/api/charts/filters/watchlist/toast), curl brapi.dev HTTP 200 (704 bytes), git push confirmado (6dcab41..159128e).
 
-### Fase 8 — Deploy no GitHub Pages [PENDENTE]
+### Fase 8 — Deploy no GitHub Pages [CONCLUÍDO]
 - Configurar GitHub Pages (gh-pages branch ou settings)
 - Verificar que o app funciona na URL pública
 - Adicionar badge de URL no README
 - Commit: "deploy: GitHub Pages"
+- Concluído em 2026-07-31 — commit dbcd494: GitHub Pages habilitado via API (`gh api -X POST repos/lloupp/stock-watcher-b3/pages -f source[branch]=master -f source[path]=/`) apontando para a branch master na raiz — optou-se por deploy direto do master (sem branch gh-pages órfã nem workflow Actions) porque o app é 100% estático com paths relativos (validado: nenhum fetch('/...') absoluto em js/*.js; index.html usa css/style.css e js/app.js relativos; app.js faz fetch('data/default-stocks.json') relativo). URL pública gerada: https://lloupp.github.io/stock-watcher-b3/. Build do Pages concluído (status=built) para o commit a1d564c e revalidado após o commit dbcd494 (também built). Verificação ao vivo com curl: index.html HTTP 200 (6609 bytes pós-footer atualizado), css/style.css HTTP 200 (29218 bytes), js/app.js HTTP 200 (50787 bytes, MIME application/javascript correto para ES modules), data/default-stocks.json HTTP 200 (1377 bytes), <title>Stock Watcher B3</title> confirmado, link "Ver online" e link do repo no footer presentes na versão publicada. README atualizado: badges GitHub Pages + MIT no topo, link "Demo ao vivo" destacado, e nova seção "### Deploy (GitHub Pages)" sob Desenvolvimento documentando a URL, o fato de paths relativos dispensarem ajuste de base, e o comando gh api para reconfigurar. index.html: footer ganhou link para o repo real (github.com/lloupp/stock-watcher-b3, antes era github.com genérico) e link "Ver online" apontando para a URL do Pages. Testes: node --check OK em todos os 7 JS, JSON válido (20 ativos), git push confirmado (a1d564c..dbcd494).
 
 ## Regras do cron
 1. Ler este arquivo para saber qual fase executar
